@@ -1,3 +1,4 @@
+import { apiRequest, isMockMode } from '../services/apiClient';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
@@ -35,6 +36,7 @@ export function SettlementsPage() {
   const [isLoadingTrips, setIsLoadingTrips] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const loadTrips = useCallback(async () => {
     setIsLoadingTrips(true);
@@ -98,11 +100,24 @@ export function SettlementsPage() {
     [tripDetail]
   );
 
+  const saveSettlement = async (id) => {
+    setSaving(true);
+    try {
+      const path = `/api/v1/trips/${tripDetail.id}/settlements`;
+      await apiRequest(id ? `${path}/${id}` : path, {method: id ? 'PATCH' : 'POST', body: id ? {status: 'completed'} : {}});
+      await loadTripDetail(tripDetail.id);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const memberSummaries = tripDetail?.memberSettlementSummary || [];
 
   const isSettled =
     tripDetail?.settlementStatus === 'SETTLED' ||
-    (summary.pending.length === 0 && summary.completed.length > 0);
+    (isMockMode() && summary.pending.length === 0 && summary.completed.length > 0);
 
   return (
     <AppLayout>
@@ -141,6 +156,9 @@ export function SettlementsPage() {
 
           {tripDetail && (
             <div className="flex items-center gap-2.5">
+              {!isMockMode() && tripDetail.isOwner && tripDetail.expenseCount > 0 && (
+                <Button size="sm" disabled={saving} onClick={() => saveSettlement()}>정산 계산</Button>
+              )}
               <StatusBadge tone={isSettled ? 'green' : 'amber'}>
                 {isSettled ? '정산 완료' : '정산 진행 중'}
               </StatusBadge>
@@ -204,7 +222,7 @@ export function SettlementsPage() {
                     내가 보내야 할 금액 (KRW)
                   </p>
                   <p className="text-2xl sm:text-[26px] font-extrabold text-[#C84A4A] tabular-nums mt-1.5">
-                    {formatKrw(summary.pendingSend)}
+                    {formatKrw(isMockMode() ? summary.pendingSend : tripDetail.myPendingSendKrw)}
                   </p>
                 </div>
                 <span
@@ -221,7 +239,7 @@ export function SettlementsPage() {
                     내가 받아야 할 금액 (KRW)
                   </p>
                   <p className="text-2xl sm:text-[26px] font-extrabold text-primary-dark tabular-nums mt-1.5">
-                    {formatKrw(summary.pendingReceive)}
+                    {formatKrw(isMockMode() ? summary.pendingReceive : tripDetail.myPendingReceiveKrw)}
                   </p>
                 </div>
                 <span
@@ -314,8 +332,8 @@ export function SettlementsPage() {
                 {summary.pending.length === 0 ? (
                   <EmptyState
                     icon={CheckCircle2}
-                    title="남은 정산 내역이 없어요"
-                    description="보내거나 받을 금액이 모두 정리되었어요."
+                    title={isSettled ? "남은 정산 내역이 없어요" : "정산 계산 전이에요"}
+                    description={isSettled ? "보내거나 받을 금액이 모두 정리되었어요." : "방장이 정산을 계산하면 송금할 내역이 표시돼요."}
                   />
                 ) : (
                   <ul className="space-y-3">
@@ -358,7 +376,7 @@ export function SettlementsPage() {
                                 {label}
                               </p>
                               <p className="text-xs text-ink-secondary mt-0.5">
-                                {isSend ? '송금 필요' : '입금 예정'}
+                                {item.direction === 'OTHER' ? '멤버 간 송금' : isSend ? '송금 필요' : '입금 예정'}
                               </p>
                             </div>
                           </div>
@@ -376,8 +394,10 @@ export function SettlementsPage() {
                                 isSend ? 'text-[#C84A4A]/80' : 'text-primary-dark/80'
                               }`}
                             >
-                              {isSend ? '보내기' : '받기'}
+                              {item.direction === 'OTHER' ? '멤버 간 송금' : isSend ? '보내기' : '받기'}
                             </span>
+                            {!isMockMode() && (tripDetail.isOwner || item.direction === 'SEND') &&
+                              <Button size="sm" variant="secondary" disabled={saving} onClick={() => saveSettlement(item.id)}>송금 완료</Button>}
                           </div>
                         </li>
                       );

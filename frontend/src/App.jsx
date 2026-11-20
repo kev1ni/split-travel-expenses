@@ -1,3 +1,4 @@
+import { isMockMode } from './services/apiClient';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
@@ -76,9 +77,7 @@ export default function App() {
           <Route
             path="/invite/:inviteCode"
             element={
-              <ProtectedRoute>
-                <InviteAcceptPage />
-              </ProtectedRoute>
+              isMockMode() ? <ProtectedRoute><InviteAcceptPage /></ProtectedRoute> : <InviteAcceptPage />
             }
           />
           <Route

@@ -1,6 +1,6 @@
 # 🌿 N빵트립 (NTrip)
 
-[React 프론트엔드 실행](frontend/README.md) · [팀 API 명세](docs/API.md) · [Flask·Supabase 설정](database/README.md) · [모바일 수집기](card-collector/README.md)
+[React 프론트엔드 실행](frontend/README.md) · [팀 API 명세](docs/API.md) · [백엔드 실행·DB 마이그레이션](database/docs/BACKEND_V1.md) · [모바일 수집기](card-collector/README.md)
 
 
 ### ✈️ 여행은 함께, 정산은 간편하게!

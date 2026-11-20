@@ -5,12 +5,7 @@
  * - VITE_API_MODE=api  : Python Flask 백엔드 REST API 실제 연동 모드 (HttpOnly 쿠키 세션 지원)
  */
 
-const rawMode = import.meta.env.VITE_API_MODE;
-export const API_MODE = rawMode === 'api' || rawMode === 'mock'
-  ? rawMode
-  : import.meta.env.DEV
-    ? 'mock'
-    : 'api';
+export const API_MODE = import.meta.env.VITE_API_MODE === 'mock' ? 'mock' : 'api';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
@@ -18,34 +13,25 @@ export function isMockMode() {
   return API_MODE === 'mock';
 }
 
-/**
- * 백엔드 팀원과 협의 후 쉽게 경로를 변경할 수 있도록 엔드포인트를 중앙 관리합니다.
- * (현재 경로는 임시 제안 계약입니다.)
- */
+const trips = '/api/v1/trips';
 export const API_ENDPOINTS = {
   auth: {
-    signup: '/api/auth/signup',
-    login: '/api/auth/login',
-    me: '/api/auth/me',
-    logout: '/api/auth/logout',
+    signup: '/api/v1/auth/signup', login: '/api/v1/auth/login',
+    me: '/api/v1/auth/me', logout: '/api/v1/auth/logout',
   },
-  dashboard: '/api/dashboard',
   trips: {
-    list: '/api/trips',
-    detail: (tripId) => `/api/trips/${tripId}`,
-    members: (tripId) => `/api/trips/${tripId}/members`,
-    guestMembers: (tripId) => `/api/trips/${tripId}/members/guest`,
-    invitations: (tripId) => `/api/trips/${tripId}/invitations`,
-    expenses: (tripId) => `/api/trips/${tripId}/expenses`,
+    list: trips, detail: (id) => `${trips}/${id}`,
+    members: (id) => `${trips}/${id}/members`,
+    guestMembers: (id) => `${trips}/${id}/members/guests`,
+    invitations: (id) => `${trips}/${id}/invitations`,
+    expenses: (id) => `${trips}/${id}/expenses`,
   },
   invitations: {
-    preview: (inviteCode) => `/api/invitations/${inviteCode}`,
-    accept: (inviteCode) => `/api/invitations/${inviteCode}/accept`,
+    preview: (code) => `/api/v1/invitations/${encodeURIComponent(code)}`,
+    accept: '/api/v1/invitations/accept',
   },
-  cardEvents: {
-    parse: '/api/card-events/parse',
-  },
-  exchangeRates: '/api/exchange-rates',
+  cardEvents: {parse: '/api/v1/card-events/parse'},
+  exchangeRates: '/api/v1/exchange-rates',
 };
 
 export class ApiError extends Error {
@@ -104,7 +90,8 @@ export async function apiRequest(path, options = {}) {
   if (!response.ok) {
     const message =
       data?.message ||
-      data?.error ||
+      data?.error?.message ||
+      (typeof data?.error === 'string' ? data.error : '') ||
       (response.status === 401
         ? '로그인이 필요하거나 세션이 만료되었어요.'
         : response.status === 403
@@ -113,9 +100,12 @@ export async function apiRequest(path, options = {}) {
             ? '요청한 정보를 찾을 수 없어요.'
             : '요청을 처리하는 중 문제가 발생했어요. 잠시 후 다시 시도해 주세요.');
 
-    throw new ApiError(message, response.status, data?.code || 'HTTP_ERROR', data);
+    throw new ApiError(message, response.status, data?.error?.code || data?.code || 'HTTP_ERROR', data?.error?.details || data);
   }
 
+  if (response.status !== 204 && data === null) {
+    throw new ApiError('API 응답을 읽을 수 없어요. 서버 주소를 확인해 주세요.', response.status, 'INVALID_RESPONSE');
+  }
   return data;
 }
 

@@ -3,7 +3,7 @@
 import ctypes as c
 from pathlib import Path
 
-from verify_ios_archive import load_signed_workflow
+from verify_ios_archive import NAME, load_signed_workflow
 
 
 IOS_DIR = Path(__file__).resolve().parents[1] / "ios"
@@ -170,4 +170,4 @@ def check(signed):
 
 
 if __name__ == "__main__":
-    check(load_signed_workflow(next((IOS_DIR / "배포용").glob("*.shortcut"))))
+    check(load_signed_workflow(IOS_DIR / "배포용" / NAME))

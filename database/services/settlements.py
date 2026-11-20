@@ -78,21 +78,10 @@ def get_trip_balances(trip_id: int) -> List[Dict[str, Any]]:
 # ------------------------------------------------------------------
 # 정산
 # ------------------------------------------------------------------
-def calculate_settlements(trip_id: int) -> List[Dict[str, Any]]:
-    """
-    최소 송금 정산 (큰 금액부터 매칭하는 Greedy).
-    completed 송금은 유지·반영, 기존 pending 정산은 삭제 후 새로 계산 (중복 생성 없음).
-    """
-    client = get_supabase_client()
-    trip_id = to_int(trip_id, "trip_id")
-    get_trip_or_404(client, trip_id)
-
-    balances = compute_trip_balances(client, trip_id)
-    if not any(b["paid"] or b["owed"] for b in balances.values()):
-        raise ValidationError("정산할 지출 내역이 없습니다.")
-
-    creditors = sorted(([m, b["outstanding"]] for m, b in balances.items() if b["outstanding"] > 0), key=lambda x: -x[1])
-    debtors = sorted(([m, -b["outstanding"]] for m, b in balances.items() if b["outstanding"] < 0), key=lambda x: -x[1])
+def transfer_rows(trip_id, balances):
+    """Compute transfers from remaining KRW balances without writing to the database."""
+    creditors = sorted(([m, b["outstanding"]] for m, b in balances.items() if b["outstanding"] > 0), key=lambda x: (-x[1], x[0]))
+    debtors = sorted(([m, -b["outstanding"]] for m, b in balances.items() if b["outstanding"] < 0), key=lambda x: (-x[1], x[0]))
 
     rows, c, d = [], 0, 0
     while c < len(creditors) and d < len(debtors):
@@ -109,6 +98,29 @@ def calculate_settlements(trip_id: int) -> List[Dict[str, Any]]:
         c += creditors[c][1] == 0
         d += debtors[d][1] == 0
 
+    return rows
+
+
+def calculate_settlements(trip_id: int) -> List[Dict[str, Any]]:
+    """
+    최소 송금 정산 (큰 금액부터 매칭하는 Greedy).
+    completed 송금은 유지·반영, 기존 pending 정산은 삭제 후 새로 계산 (중복 생성 없음).
+    """
+    client = get_supabase_client()
+    trip_id = to_int(trip_id, "trip_id")
+    get_trip_or_404(client, trip_id)
+
+    balances = compute_trip_balances(client, trip_id)
+    if not any(b["paid"] or b["owed"] for b in balances.values()):
+        raise ValidationError("정산할 지출 내역이 없습니다.")
+
+    rows = transfer_rows(trip_id, balances)
+    current = list_settlements(trip_id, "pending")
+    def signature(items):
+        return sorted((i["sender_member_id"], i["receiver_member_id"], i["amount"]) for i in items)
+    if signature(rows) == signature(current):
+        return current
+
     db_call("기존 대기 정산 삭제",
             lambda: client.table(TABLE_SETTLEMENTS).delete().eq("trip_id", trip_id).eq("status", "pending").execute())
     if not rows:
@@ -123,6 +135,28 @@ def _attach_names(client, trip_id: int, settlements: List[Dict[str, Any]]) -> Li
         s["sender_nickname"] = names.get(s["sender_member_id"], UNKNOWN_NICKNAME)
         s["receiver_nickname"] = names.get(s["receiver_member_id"], UNKNOWN_NICKNAME)
     return settlements
+
+
+def _settlement_rpc(name, params):
+    client = get_supabase_client()
+    def run():
+        try:
+            return client.rpc(name, params).execute().data
+        except Exception as exc:
+            if getattr(exc, "code", None) == "40001":
+                raise ConflictError("지출 내역이 변경 중입니다. 잠시 후 다시 확인해주세요.") from exc
+            if getattr(exc, "code", None) == "P0002":
+                raise NotFoundError("이 여행의 정산 내역을 찾을 수 없습니다.") from exc
+            raise
+    return db_call("여행 정산", run)
+
+
+def confirm_trip_settlements(trip_id):
+    return _settlement_rpc("confirm_trip_settlements", {"p_trip_id": trip_id})
+
+
+def complete_trip_settlement(trip_id, settlement_id):
+    return _settlement_rpc("complete_trip_settlement", {"p_trip_id": trip_id, "p_settlement_id": settlement_id})
 
 
 def list_settlements(trip_id: int, status: Optional[str] = None) -> List[Dict[str, Any]]:

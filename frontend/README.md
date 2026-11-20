@@ -1,76 +1,30 @@
-# N빵트립 (NTrip) Frontend
+# N빵트립 프론트엔드
 
-대학교 심화프로그래밍 팀 프로젝트 **N빵트립(NTrip)** 여행 경비 정산 웹앱의 React + Vite 프론트엔드입니다.
+React 18, Vite, Tailwind CSS 및 React Router로 만든 여행 경비 정산 화면이다. 기본 모드에서는 Flask의 `/api/v1`을 호출한다. 로그인한 브라우저는 HttpOnly 세션 쿠키를 사용하고, 초대 링크로 온 친구는 닉네임으로 여행에 참여할 수 있다.
 
-## 기술 스택
+## 개발 서버 실행
 
-- React 18 + Vite 6 (JSX)
-- Tailwind CSS 3 (CSS 변수 기반 테마 토큰)
-- React Router DOM 6
-- Lucide React (아이콘)
+[백엔드 설정 안내](../README.md)에 따라 Flask와 데이터베이스를 먼저 준비한 뒤 다음 명령을 실행한다.
 
-## 실행 방법
-
-```bash
+```sh
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
-개발 서버는 기본적으로 `http://localhost:5173` 에서 실행됩니다.
+브라우저에서 `http://localhost:5173`을 연다. Vite는 같은 주소로 요청한 `/api`를 `http://127.0.0.1:5000`으로 전달한다. Flask 포트를 바꿨다면 `VITE_API_PROXY_TARGET`에 전체 백엔드 주소를 설정한다. Supabase 키와 세션 서명 키는 Flask 환경에 둔다.
 
-프로덕션 빌드 확인:
+`npm run build`로 프론트를 빌드한 뒤 Flask 주소를 열면 같은 서버가 `frontend/dist`와 API를 함께 제공한다. 이미 운영 중인 백엔드가 다른 도메인에 있다면 `VITE_API_BASE_URL`에 호스트 주소를 넣고 Flask에서 해당 프론트 Origin과 쿠키 정책을 설정한다.
 
-```bash
-npm run build
-npm run preview
-```
+## 연결 확인
 
-## 환경 변수 및 Mock / 실제 API 모드 전환
+1. 회원가입 후 로그인하고 여행을 만든다.
+2. 여행 상세의 **초대 링크**를 다른 브라우저에서 연다. 친구는 닉네임을 입력한 뒤 여행 지출과 본인의 정산 금액을 확인할 수 있다.
+3. **현금 지출**에서 결제자와 분담 멤버를 선택한다. 외화는 기준일 환율을 확인하거나 직접 입력한다. **카드 지출**에서는 결제 알림을 확인한 뒤 지출로 등록한다.
+4. 여행 지출을 확인한 뒤 **정산 내역**에서 방장이 **정산 계산**을 누른다. 송금 완료 상태를 반영하면 정산 잔액도 갱신된다.
 
-`frontend/.env.development` 또는 `.env.local` 에서 모드를 전환할 수 있습니다.
+UI의 함수와 API 필드는 [백엔드 API 명세](../docs/API.md)를 참고한다.
 
-```env
-# 'mock' (개발용 샘플/Mock 모드) 또는 'api' (Flask 백엔드 실제 연동)
-VITE_API_MODE=mock
+## 개발용 샘플 데이터
 
-# 실제 API 모드 시 백엔드 기본 URL (비워두면 Vite 프록시 /api -> http://localhost:5000 사용)
-VITE_API_BASE_URL=
-```
-
-> **주의**: 현재 백엔드 Flask API 연동 전에는 `VITE_API_MODE=mock` 모드로 동작합니다.
-> - Mock 모드에서는 화면 상단에 **개발용 Mock 모드** 배너가 표시됩니다.
-> - Mock 테스트 계정: `demo` / `ntrip1234` (또는 회원가입 화면에서 새 계정을 생성해 현재 세션 내에서 로그인 테스트 가능)
-> - 비밀번호는 `localStorage` 나 콘솔에 저장·출력하지 않습니다.
-> - 실제 운영 환경(`VITE_API_MODE=api`)에서는 `/api/auth/me` 서버 검증 및 Flask HttpOnly 쿠키 기반 세션 인증(`credentials: 'include'`)을 전제로 동작합니다.
-
-## 구현된 화면 및 경로
-
-- `/` : 랜딩 페이지
-- `/login` : 로그인
-- `/signup` : 회원가입
-- `/home` : 메인 홈 대시보드 (로그인 보호 라우트)
-- `/trips` : 내 여행 목록 및 초대 코드 입력
-- `/trips/new` : 새 여행 만들기 기본 UI (백엔드 저장 API 연동 대기)
-- `/trips/:tripId` : 여행 상세 페이지 (기본 정보, 참여 친구 및 비회원 추가, 총지출, 현금/카드 지출 목록, 정산 결과, 지출 통계)
-- `/invite/:inviteCode` : 친구 초대 수락 화면 (미로그인 시 로그인 후 자동 복귀)
-- `/trips/:tripId/expenses/cash` : 현금 지출 직접 입력
-- `/trips/:tripId/expenses/card` : 카드 결제 메시지 파싱 확인 및 등록 (신규/중복/분석실패/취소/부분취소 상태 UI 지원)
-- `/expenses`, `/settlements` : 경비 관리 / 정산 내역 요약 화면
-
-## 추후 Flask 백엔드 연동이 필요한 API (임시 제안 경로)
-
-엔드포인트는 `src/services/apiClient.js` 의 `API_ENDPOINTS` 에서 중앙 관리합니다.
-
-- `POST /api/auth/signup`
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `POST /api/auth/logout`
-- `GET /api/dashboard`
-- `GET /api/trips`, `POST /api/trips`
-- `GET /api/trips/:tripId`
-- `GET /api/trips/:tripId/members`, `POST /api/trips/:tripId/members/guest`
-- `POST /api/trips/:tripId/invitations`
-- `GET /api/invitations/:inviteCode`, `POST /api/invitations/:inviteCode/accept`
-- `GET /api/trips/:tripId/expenses`, `POST /api/trips/:tripId/expenses`
-- `POST /api/card-events/parse`
+백엔드 없이 화면 디자인을 살펴보려면 `frontend/.env.local`에 `VITE_API_MODE=mock`을 지정한 뒤 Vite를 다시 시작한다. 데모 계정은 `demo` / `ntrip1234`이다. 실제 DB 연동을 시험하려면 `VITE_API_MODE=api`로 실행한다.

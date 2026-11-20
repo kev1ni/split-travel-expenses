@@ -7,6 +7,9 @@ import { Button } from '../components/common/Button';
 import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { CardMessageParser } from '../components/expenses/CardMessageParser';
 import { ParsedExpensePreview } from '../components/expenses/ParsedExpensePreview';
+import { CollectorInbox } from '../components/expenses/CollectorInbox';
+import { CollectorExpenseReview } from '../components/expenses/CollectorExpenseReview';
+import { isMockMode } from '../services/apiClient';
 import { tripService } from '../services/tripService';
 import { cardEventService } from '../services/cardEventService';
 import { expenseService } from '../services/expenseService';
@@ -24,6 +27,7 @@ export function CardExpensePage() {
   const [isParsing, setIsParsing] = useState(false);
   const [parseError, setParseError] = useState('');
   const [parseResult, setParseResult] = useState(null);
+  const [showParser, setShowParser] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -85,6 +89,10 @@ export function CardExpensePage() {
     });
   };
 
+  const registered = (title, refund) => navigate(`/trips/${tripId}`, {
+    replace: true, state: { notice: `'${title}' ${refund ? '취소를 반영했어요.' : '카드 지출을 등록했어요.'}` },
+  });
+
   return (
     <AppLayout>
       <div className="max-w-3xl mx-auto space-y-5">
@@ -110,6 +118,14 @@ export function CardExpensePage() {
           </Card>
         ) : (
           <div className="space-y-5">
+            {!isMockMode() && <>
+              <CollectorInbox key={tripId} trip={trip} onRegistered={registered} />
+              <Button variant="secondary" aria-expanded={showParser}
+                onClick={() => { setShowParser(!showParser); setRawMessage(''); setParseResult(null); setParseError(''); }}>
+                {showParser ? '직접 입력 닫기' : '이전 카드 문자 직접 입력'}
+              </Button>
+            </>}
+            {(isMockMode() || showParser) &&
             <CardMessageParser
               rawMessage={rawMessage}
               onRawMessageChange={(val) => {
@@ -121,9 +137,11 @@ export function CardExpensePage() {
               isParsing={isParsing}
               parseError={parseError}
               onSelectPreset={handleSelectPreset}
-            />
+            />}
 
-            {parseResult && (
+            {parseResult && !isMockMode() && <CollectorExpenseReview key={parseResult.event_id} manual
+              trip={trip} event={parseResult} onClose={() => setParseResult(null)} onRegistered={registered} />}
+            {parseResult && isMockMode() && (
               <ParsedExpensePreview
                 tripId={tripId}
                 parseResult={parseResult}

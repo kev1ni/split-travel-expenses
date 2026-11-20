@@ -9,7 +9,7 @@ from functools import wraps
 from typing import Any, Dict, Optional
 
 from flask import Flask, g, jsonify, request
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import BadRequest, HTTPException
 
 from config import settings
 from core.errors import AppError, AuthError, ValidationError
@@ -29,6 +29,8 @@ def get_json_body() -> Dict[str, Any]:
     """요청 본문을 JSON 객체로 읽습니다. 비었거나 JSON 객체가 아니면 400."""
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
+        if request.path.startswith("/api/v1/"):
+            raise BadRequest("요청 본문은 올바른 JSON 객체여야 합니다.")
         raise ValidationError("요청 본문은 JSON 객체여야 합니다. (Content-Type: application/json)")
     return data
 
@@ -71,11 +73,23 @@ def require_parser_key(view):
 # 에러 핸들러 & 요청 로그
 # ------------------------------------------------------------------
 def register_error_handlers(app: Flask) -> None:
+    def error_response(message, status, exc=None):
+        if request.path.startswith("/api/v1/"):
+            if isinstance(exc, ValidationError) and request.is_json:
+                status = 422
+            codes = {400: "BAD_REQUEST", 401: "UNAUTHORIZED", 403: "FORBIDDEN", 404: "NOT_FOUND",
+                     405: "METHOD_NOT_ALLOWED", 409: "CONFLICT", 413: "PAYLOAD_TOO_LARGE",
+                     422: "VALIDATION_ERROR", 503: "SERVICE_UNAVAILABLE"}
+            code = getattr(exc, "code_name", None) or codes.get(status, "INTERNAL_ERROR")
+            return jsonify(error={"code": code, "message": message, "details": {}}), status
+        return jsonify({"status": "error", "message": message}), status
+
     @app.errorhandler(AppError)
     def handle_app_error(e: AppError):
         if e.status_code >= 500:
-            logger.exception("서버 오류: %s", e.message)
-        return jsonify({"status": "error", "message": e.message}), e.status_code
+            logger.error("API failure: %s (%d)", type(e).__name__, e.status_code)
+        message = "데이터베이스 요청을 처리하지 못했습니다." if e.status_code == 500 else e.message
+        return error_response(message, e.status_code, e)
 
     @app.errorhandler(HTTPException)
     def handle_http_error(e: HTTPException):
@@ -83,17 +97,17 @@ def register_error_handlers(app: Flask) -> None:
             404: f"존재하지 않는 API 경로입니다: {request.path} (API는 /api/로 시작합니다. 전체 목록은 / 에서 확인)",
             405: f"허용되지 않은 HTTP 메서드입니다: {request.method} {request.path}",
         }
-        return jsonify({"status": "error", "message": messages.get(e.code, e.description)}), e.code
+        return error_response(messages.get(e.code, e.description), e.code)
 
     @app.errorhandler(ValueError)
     def handle_value_error(e: ValueError):
-        return jsonify({"status": "error", "message": str(e)}), 400
+        return error_response(str(e), 400, e)
 
     @app.errorhandler(Exception)
     def handle_unexpected(e: Exception):
         logger.exception("처리되지 않은 오류")
         message = str(e) if settings.debug else "서버 내부 오류가 발생했습니다."
-        return jsonify({"status": "error", "message": message}), 500
+        return error_response(message, 500)
 
 
 def register_request_logging(app: Flask) -> None:

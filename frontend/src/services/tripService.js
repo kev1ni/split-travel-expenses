@@ -1,3 +1,4 @@
+import { memberView, tripView } from './dbViews';
 import { API_ENDPOINTS, ApiError, apiRequest, isMockMode, simulateMockDelay } from './apiClient';
 import { sumKrwIntegers } from '../utils/currencyMath';
 import { mockStore } from './mockData';
@@ -56,7 +57,13 @@ function findTripById(tripId) {
 export const tripService = {
   async getDashboard(currentUser) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.dashboard, { method: 'GET' });
+      const {trips} = await this.getTrips();
+      return {trips, userNickname: currentUser?.nickname,
+        summary: {activeTripCount: trips.length, totalExpenseKrw: sumKrwIntegers(trips.map(t => t.totalAmountKrw)),
+          pendingSettlementKrw: sumKrwIntegers(trips.map(t => t.myPendingSendKrw))},
+        recentExpenses: trips.flatMap(t => t.expenses.map(e => ({...e, tripTitle: t.title})))
+          .sort((a, b) => (b.expenseDate + b.expenseTime).localeCompare(a.expenseDate + a.expenseTime)).slice(0, 5),
+        settlements: trips.flatMap(t => t.settlements.map(s => ({...s, tripTitle: t.title})))};
     }
 
     await simulateMockDelay(260);
@@ -102,7 +109,8 @@ export const tripService = {
 
   async getTrips() {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.trips.list, { method: 'GET' });
+      const {data} = await apiRequest(API_ENDPOINTS.trips.list);
+      return {trips: await Promise.all(data.map(t => this.getTripDetail(t.id)))};
     }
 
     await simulateMockDelay(220);
@@ -114,7 +122,8 @@ export const tripService = {
 
   async getTripDetail(tripId) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.trips.detail(tripId), { method: 'GET' });
+      const {data} = await apiRequest(API_ENDPOINTS.trips.detail(tripId));
+      return tripView(data);
     }
 
     await simulateMockDelay(240);
@@ -137,7 +146,8 @@ export const tripService = {
 
   async getTripMembers(tripId) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.trips.members(tripId), { method: 'GET' });
+      const trip = await this.getTripDetail(tripId);
+      return {members: trip.members};
     }
 
     await simulateMockDelay(180);
@@ -156,10 +166,11 @@ export const tripService = {
    */
   async addGuestMember(tripId, { name }) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.trips.guestMembers(tripId), {
+      const {data} = await apiRequest(API_ENDPOINTS.trips.guestMembers(tripId), {
         method: 'POST',
-        body: { name, memberType: 'GUEST' },
+        body: { nickname: name },
       });
+      return {member: memberView(data), members: (await this.getTripMembers(tripId)).members};
     }
 
     await simulateMockDelay(260);
@@ -196,9 +207,8 @@ export const tripService = {
    */
   async createInvitation(tripId) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.trips.invitations(tripId), {
-        method: 'POST',
-      });
+      const {data} = await apiRequest(API_ENDPOINTS.trips.invitations(tripId), {method: 'POST', body: {}});
+      return {inviteCode: data.share_code, tripId};
     }
 
     await simulateMockDelay(260);
@@ -221,9 +231,8 @@ export const tripService = {
    */
   async getInvitationPreview(inviteCode, currentUser) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.invitations.preview(inviteCode), {
-        method: 'GET',
-      });
+      const {data} = await apiRequest(API_ENDPOINTS.invitations.preview(inviteCode));
+      return {...tripView(data), tripId: String(data.id), alreadyJoined: data.already_joined};
     }
 
     await simulateMockDelay(240);
@@ -264,11 +273,11 @@ export const tripService = {
   /**
    * 초대 수락하여 여행 참여
    */
-  async acceptInvitation(inviteCode, currentUser) {
+  async acceptInvitation(inviteCode, currentUser, guestName) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.invitations.accept(inviteCode), {
-        method: 'POST',
-      });
+      const {data} = await apiRequest(API_ENDPOINTS.invitations.accept, {method: 'POST',
+        body: {share_code: inviteCode, nickname: guestName || currentUser?.nickname}});
+      return {tripId: String(data.trip_id), title: data.title};
     }
 
     await simulateMockDelay(320);
@@ -329,10 +338,11 @@ export const tripService = {
    */
   async createTrip(payload) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.trips.list, {
-        method: 'POST',
-        body: payload,
-      });
+      const {data} = await apiRequest(API_ENDPOINTS.trips.list, {method: 'POST', body: {
+        title: payload.title, destination_country: payload.location || payload.countryCode,
+        destination_currency: payload.baseCurrency, start_date: payload.startDate, end_date: payload.endDate,
+        description: payload.description}});
+      return tripView(data);
     }
 
     await simulateMockDelay(250);

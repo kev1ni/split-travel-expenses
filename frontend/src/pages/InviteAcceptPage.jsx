@@ -18,7 +18,8 @@ import { formatDateRange } from '../utils/formatters';
 
 export function InviteAcceptPage() {
   const { inviteCode } = useParams();
-  const { user } = useAuth();
+  const { user, refreshUser, isInitializing } = useAuth();
+  const [guestName, setGuestName] = useState('');
   const navigate = useNavigate();
 
   const [preview, setPreview] = useState(null);
@@ -52,7 +53,8 @@ export function InviteAcceptPage() {
     setIsJoining(true);
     setError('');
     try {
-      const result = await tripService.acceptInvitation(inviteCode, user);
+      const result = await tripService.acceptInvitation(inviteCode, user, guestName.trim());
+      if (!user) await refreshUser();
       navigate(`/trips/${result.tripId}`, {
         replace: true,
         state: {
@@ -133,6 +135,15 @@ export function InviteAcceptPage() {
                 </div>
               )}
 
+              {!preview.alreadyJoined && !isInitializing && (!user || user.isGuest) && (
+                <label className="block text-sm font-semibold">
+                  여행에서 사용할 닉네임
+                  <input className="block mt-2 w-full rounded-xl border border-surface-border p-3" maxLength={50}
+                    value={guestName} onChange={e => setGuestName(e.target.value)} placeholder="닉네임" />
+                </label>
+              )}
+              {!user && !isInitializing && <Link className="block text-sm text-primary-dark" to="/login"
+                state={{from: `/invite/${inviteCode}`}}>계정으로 로그인해 참여하기</Link>}
               {preview.alreadyJoined ? (
                 <div className="space-y-4">
                   <div
@@ -168,6 +179,7 @@ export function InviteAcceptPage() {
                     variant="primary"
                     fullWidth
                     loading={isJoining}
+                    disabled={isInitializing || ((!user || user.isGuest) && !guestName.trim())}
                     onClick={handleJoin}
                   >
                     여행 참여하기

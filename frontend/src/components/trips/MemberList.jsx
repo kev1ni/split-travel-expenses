@@ -53,7 +53,7 @@ export function MemberList({ members = [], onAddGuest, onOpenInvite }) {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
+          {onAddGuest && <Button
             size="sm"
             variant="secondary"
             onClick={() => {
@@ -63,7 +63,7 @@ export function MemberList({ members = [], onAddGuest, onOpenInvite }) {
           >
             <UserRoundPlus className="w-4 h-4" aria-hidden="true" />
             비회원 친구 추가
-          </Button>
+          </Button>}
           {onOpenInvite && (
             <Button size="sm" variant="soft" onClick={onOpenInvite}>
               초대 링크
@@ -73,7 +73,7 @@ export function MemberList({ members = [], onAddGuest, onOpenInvite }) {
       </div>
 
       {/* 비회원 임시 멤버 추가 폼 */}
-      {showGuestForm && (
+      {showGuestForm && onAddGuest && (
         <form
           onSubmit={handleGuestSubmit}
           className="mb-4 p-4 rounded-[16px] bg-surface-bg border border-surface-border space-y-3"

@@ -35,13 +35,19 @@ function toSafeUserProfile(user) {
   };
 }
 
+function fromAccount(user) {
+  return {id: user.id == null ? null : String(user.id), username: user.login_id,
+    nickname: user.nickname, isGuest: Boolean(user.is_guest)};
+}
+
 export const authService = {
   async signup({ nickname, username, password }) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.auth.signup, {
+      const {data} = await apiRequest(API_ENDPOINTS.auth.signup, {
         method: 'POST',
-        body: { nickname, username, password },
+        body: { nickname, login_id: username, password },
       });
+      return {user: fromAccount(data)};
     }
 
     await simulateMockDelay(420);
@@ -76,10 +82,11 @@ export const authService = {
 
   async login({ username, password }) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.auth.login, {
+      const {data} = await apiRequest(API_ENDPOINTS.auth.login, {
         method: 'POST',
-        body: { username, password },
+        body: { login_id: username, password },
       });
+      return {user: fromAccount(data.user)};
     }
 
     await simulateMockDelay(400);
@@ -108,7 +115,7 @@ export const authService = {
     if (!isMockMode()) {
       try {
         const data = await apiRequest(API_ENDPOINTS.auth.me, { method: 'GET' });
-        return data?.user || data || null;
+        return fromAccount(data.data);
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
           return null;

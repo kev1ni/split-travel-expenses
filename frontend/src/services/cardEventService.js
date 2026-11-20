@@ -1,4 +1,4 @@
-import { API_ENDPOINTS, ApiError, apiRequest, isMockMode, simulateMockDelay } from './apiClient';
+import { API_BASE_URL, ApiError, apiRequest, isMockMode, simulateMockDelay } from './apiClient';
 import { mockStore } from './mockData';
 
 /**
@@ -10,16 +10,41 @@ import { mockStore } from './mockData';
  *   Mock 모드에서는 UI 흐름 검증을 위한 사전 정의된 응답만 반환합니다.
  */
 export const cardEventService = {
+  async getPending(tripId, signal) {
+    const query = new URLSearchParams({ trip_id: tripId, scoped: 'true', limit: '100' });
+    const result = await apiRequest(`/api/card-events/unassigned?${query}`, { signal });
+    return result.unassigned_cards;
+  },
+
+  async pair(tripId, payerId, username, password) {
+    const result = await apiRequest('/api/collector/pair', {
+      method: 'POST',
+      body: { trip_id: tripId, payer_member_id: payerId, login_id: username, password },
+    });
+    const base = import.meta.env.VITE_COLLECTOR_PUBLIC_ORIGIN || API_BASE_URL || window.location.origin;
+    const endpoint = new URL(result.endpoint, new URL(base, window.location.origin));
+    const isLoopback = /^(localhost\.?|127\.[\d.]+|0\.0\.0\.0|\[::1\])$/i.test(endpoint.hostname);
+    return {
+      token: result.token,
+      url: endpoint.protocol === 'https:' && !isLoopback ? endpoint.href : null,
+      path: result.endpoint,
+    };
+  },
+
+  confirm(tripId, body) {
+    return apiRequest(`/api/v1/trips/${encodeURIComponent(tripId)}/card-events`, { method: 'POST', body });
+  },
+
   async parseCardMessage({ tripId, rawMessage, mockScenario = 'AUTO' }) {
     if (!rawMessage || !rawMessage.trim()) {
       throw new ApiError('분석할 카드 결제 메시지를 입력해 주세요.', 400, 'EMPTY_MESSAGE');
     }
 
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.cardEvents.parse, {
-        method: 'POST',
-        body: { tripId, rawMessage },
+      const result = await apiRequest('/api/v1/card-events/parse', {
+        method: 'POST', body: { message: rawMessage },
       });
+      return result.data;
     }
 
     await simulateMockDelay(750);

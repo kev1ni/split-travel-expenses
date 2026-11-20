@@ -283,7 +283,7 @@ export function TripsPage() {
           ) : (
             <MemberList
               members={memberModalList}
-              onAddGuest={handleAddGuestFromModal}
+              onAddGuest={memberModalTrip?.isOwner === false ? undefined : handleAddGuestFromModal}
               onOpenInvite={() => {
                 const target = memberModalTrip;
                 setMemberModalTrip(null);

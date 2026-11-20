@@ -22,7 +22,7 @@ def test_full_flow():
     settings.parser_api_key = None
     from app import create_app
 
-    c = create_app().test_client()
+    c = create_app(legacy_test=True).test_client()
 
     def call(m, url, body=None, expect=None, headers=None):
         fn = getattr(c, m)

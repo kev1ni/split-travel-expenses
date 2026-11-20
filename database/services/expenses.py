@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from config import settings
 from core.constants import BASIS_POINT_TOTAL, ENTRY_TYPES, SPLIT_TYPE_ALIASES, SPLIT_TYPES, UNKNOWN_NICKNAME
 from core.db import TABLE_CARD_EVENTS, TABLE_EXPENSE_SPLITS, TABLE_EXPENSES, get_supabase_client
-from core.errors import NotFoundError, ValidationError
+from core.errors import ConflictError, NotFoundError, ValidationError
 from core.validators import (
     choice, currency, db_call, decimal_text, first, floor_int, now_iso, numeric_out,
     round_krw, text, to_date, to_datetime, to_decimal, to_int,
@@ -161,7 +161,9 @@ def create_expense_with_splits(
 
     card_event = None
     if card_event_id:
-        card_event = check_linkable(client, str(card_event_id))
+        card_event = check_linkable(client, str(card_event_id), trip_id, payload["payer_member_id"])
+        if card_event.get("event_type") in ("cancel", "cancellation", "partial_cancellation"):
+            raise ValidationError("취소 알림은 원본 지출과 연결해 취소로 등록해주세요.")
         if payload["entry_type"] == "manual":
             payload["entry_type"] = "auto_card"
 
@@ -170,11 +172,11 @@ def create_expense_with_splits(
         for r in rows:
             r.update({"trip_id": trip_id, "expense_id": expense["id"]})
         splits = db_call("지출 분할 저장", lambda: client.table(TABLE_EXPENSE_SPLITS).insert(rows).execute()).data
+        linked = db_call("카드 이벤트 연결", lambda: link_card_event(client, card_event, expense)) if card_event else []
     except Exception:
         client.table(TABLE_EXPENSES).delete().eq("id", expense["id"]).execute()
         raise
 
-    linked = db_call("카드 이벤트 연결", lambda: link_card_event(client, card_event, expense)) if card_event else []
     return {"expense": expense, "splits": splits or rows, "linked_card_event_ids": linked}
 
 
@@ -190,6 +192,7 @@ def update_expense(
     current = first(client.table(TABLE_EXPENSES).select("*").eq("id", expense_id).eq("trip_id", trip_id).execute())
     if not current:
         raise NotFoundError(f"이 여행에 존재하지 않는 지출입니다 (expense_id: {expense_id}).")
+    _check_editable(client, current)
 
     member_set = trip_member_ids(client, trip_id)
     merged = {**current, **expense_data}
@@ -217,14 +220,19 @@ def update_expense(
     if new_rows is not None:
         for r in new_rows:
             r.update({"trip_id": trip_id, "expense_id": expense_id})
-        client.table(TABLE_EXPENSE_SPLITS).delete().eq("expense_id", expense_id).execute()
         try:
+            client.table(TABLE_EXPENSE_SPLITS).delete().eq("expense_id", expense_id).execute()
             splits = db_call("지출 분할 교체", lambda: client.table(TABLE_EXPENSE_SPLITS).insert(new_rows).execute()).data
         except Exception:
+            # A request can fail after the DB has committed. Clear this attempted replacement
+            # before restoring both the original amounts and the original membership.
+            client.table(TABLE_EXPENSE_SPLITS).delete().eq("expense_id", expense_id).execute()
             keep = ("trip_id", "expense_id", "member_id", "split_krw_amount", "percentage_bp")
             restore = [{k: s[k] for k in keep} for s in old_splits]
             if restore:
                 client.table(TABLE_EXPENSE_SPLITS).insert(restore).execute()
+            old_expense = {k: current.get(k) for k in payload}
+            client.table(TABLE_EXPENSES).update(old_expense).eq("id", expense_id).eq("trip_id", trip_id).execute()
             raise
     return {"expense": updated or {**current, **payload}, "splits": splits}
 
@@ -233,11 +241,20 @@ def delete_expense(trip_id: int, expense_id: int) -> Dict[str, Any]:
     """지출 삭제. 분할은 CASCADE 삭제, 연결된 카드 이벤트는 다시 '미등록'으로."""
     client = get_supabase_client()
     trip_id, expense_id = to_int(trip_id, "trip_id"), to_int(expense_id, "expense_id")
-    if not client.table(TABLE_EXPENSES).select("id").eq("id", expense_id).eq("trip_id", trip_id).execute().data:
+    current = first(client.table(TABLE_EXPENSES).select("*").eq("id", expense_id).eq("trip_id", trip_id).execute())
+    if not current:
         raise NotFoundError(f"이 여행에 존재하지 않는 지출입니다 (expense_id: {expense_id}).")
+    _check_editable(client, current)
     client.table(TABLE_CARD_EVENTS).update({"expense_id": None}).eq("expense_id", expense_id).execute()
     db_call("지출 삭제", lambda: client.table(TABLE_EXPENSES).delete().eq("id", expense_id).execute())
     return {"deleted_expense_id": expense_id}
+
+
+def _check_editable(client, row):
+    if row.get("entry_type") == "cancellation" or client.table(TABLE_EXPENSES).select("id").eq(
+        "original_expense_id", row["id"]
+    ).eq("entry_type", "cancellation").limit(1).execute().data:
+        raise ConflictError("취소 이력이 있는 지출의 금액·연결 내역은 보존해야 합니다.")
 
 
 # ------------------------------------------------------------------

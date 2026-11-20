@@ -177,10 +177,10 @@ export function ExpenseItem({ expense }) {
                         {split.memberName}
                       </span>
                       <span className="font-bold text-primary-dark tabular-nums shrink-0">
-                        {formatOriginalCurrency(split.amount, expense.currency || 'KRW')}
+                        {split.amount == null ? formatKrwSymbol(split.amountKrw) : formatOriginalCurrency(split.amount, expense.currency || 'KRW')}
                       </span>
                     </div>
-                    {isForeign && split.amountKrw !== undefined && (
+                    {isForeign && split.amount != null && split.amountKrw !== undefined && (
                       <p className="text-[11px] text-ink-secondary text-right tabular-nums">
                         약 {formatKrwSymbol(split.amountKrw)}
                       </p>

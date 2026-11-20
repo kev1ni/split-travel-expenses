@@ -2,6 +2,7 @@
 
 from flask import Blueprint, request
 
+from config import settings
 from core.http import get_json_body, query_int, success
 from services import expenses
 
@@ -12,6 +13,9 @@ bp = Blueprint("expenses", __name__)
 def create_expense(trip_id: int):
     """{"expense": {...}, "split": {...}, "card_event_id": "..."}"""
     data = get_json_body()
+    if data.get("card_event_id") and settings.collector_signing_key:
+        from core.web_session import trip_member
+        trip_member(trip_id)
     result = expenses.create_expense_with_splits(
         trip_id, data.get("expense") or {}, data.get("split"), data.get("card_event_id")
     )

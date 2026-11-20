@@ -1,3 +1,4 @@
+import { isMockMode } from '../../services/apiClient';
 import { useEffect, useState } from 'react';
 import {
   Wallet,
@@ -45,7 +46,7 @@ export function CashExpenseForm({
 
   // 환율 상태
   const [rateInfo, setRateInfo] = useState({
-    rate: 1,
+    rate: defaultCurrency === 'KRW' ? 1 : null,
     date: getTodayIsoDate(),
     isMockRate: false,
   });
@@ -65,6 +66,7 @@ export function CashExpenseForm({
   // 결제 통화 또는 날짜가 바뀔 때 환율 조회
   useEffect(() => {
     if (currency === 'KRW') {
+      setIsLoadingRate(false);
       setRateInfo({ rate: 1, date: expenseDate, isMockRate: false });
       setIsCustomRate(false);
       setIsEditingRate(false);
@@ -74,6 +76,9 @@ export function CashExpenseForm({
 
     let active = true;
     setIsLoadingRate(true);
+    setRateInfo({rate: null, date: expenseDate, isMockRate: false});
+    setIsCustomRate(false);
+    setCustomRateInput('');
     exchangeRateService
       .getExchangeRate({ base: currency, target: 'KRW', date: expenseDate })
       .then((res) => {
@@ -89,13 +94,9 @@ export function CashExpenseForm({
       })
       .catch(() => {
         if (!active) return;
-        const fallback = getCurrencyMeta(currency).mockRateToKrw;
-        setRateInfo({
-          rate: fallback,
-          date: expenseDate,
-          isMockRate: true,
-        });
-        setCustomRateInput(String(fallback));
+        setRateInfo({rate: null, date: expenseDate, isMockRate: false});
+        setIsEditingRate(true);
+        setCustomRateInput('');
       })
       .finally(() => {
         if (active) setIsLoadingRate(false);
@@ -335,7 +336,7 @@ export function CashExpenseForm({
                 <button
                   type="button"
                   onClick={() => {
-                    setCustomRateInput(String(effectiveRate));
+                    setCustomRateInput(String(effectiveRate || ''));
                     setIsEditingRate((prev) => !prev);
                   }}
                   className="inline-flex items-center gap-1 px-3 py-1.5 rounded-[10px] bg-surface-card border border-surface-border text-xs font-semibold text-primary-dark hover:bg-primary-light/50 cursor-pointer"
@@ -369,14 +370,14 @@ export function CashExpenseForm({
                   <div className="p-3.5 rounded-[14px] bg-surface-card border border-surface-border/80">
                     <p className="text-xs text-ink-secondary">적용 환율</p>
                     <p className="text-base font-extrabold text-ink-main tabular-nums mt-0.5">
-                      1 {currency} = {formatExchangeRate(effectiveRate)} KRW
+                      {effectiveRate > 0 ? `1 ${currency} = ${formatExchangeRate(effectiveRate)} KRW` : '환율을 입력해 주세요'}
                     </p>
                   </div>
 
                   <div className="p-3.5 rounded-[14px] bg-primary-light/55 border border-primary/50">
                     <p className="text-xs font-semibold text-primary-dark">예상 원화 금액</p>
                     <p className="text-base font-extrabold text-primary-dark tabular-nums mt-0.5">
-                      {formatKrw(estimatedKrw)}
+                      {effectiveRate > 0 ? formatKrw(estimatedKrw) : '—'}
                     </p>
                   </div>
                 </div>
@@ -409,7 +410,7 @@ export function CashExpenseForm({
                       ? '직접 입력한 환율 기준으로 원화 환산 금액이 계산되었어요.'
                       : rateInfo.isMockRate
                         ? '실제 실시간 환율이 아닌 임시 참고 환율로 계산된 예상 금액이에요. 실제 환전 환율이 있다면 위에서 직접 수정해 주세요.'
-                        : '기준일 환율로 계산된 예상 원화 금액이며, 최종 정산 금액은 백엔드에서 확정됩니다.'}
+                        : !rateInfo.rate ? '기준 환율을 가져올 수 없어요. 직접 적용할 환율을 입력해 주세요.' : '기준일 환율로 계산된 예상 원화 금액이며, 최종 정산 금액은 백엔드에서 확정됩니다.'}
                   </p>
                 </div>
               </>
@@ -497,8 +498,7 @@ export function CashExpenseForm({
           error={errors.splits}
         />
 
-        {/* 메모 (선택) */}
-        <div className="space-y-1.5">
+        {isMockMode() && <div className="space-y-1.5">
           <label htmlFor="cash-memo" className="block text-sm font-semibold text-ink-main">
             메모 <span className="text-xs font-normal text-ink-secondary">(선택)</span>
           </label>
@@ -510,7 +510,7 @@ export function CashExpenseForm({
             onChange={(e) => setMemo(e.target.value)}
             className="w-full px-4 py-3 rounded-[16px] bg-surface-card text-[15px] text-ink-main placeholder:text-ink-secondary/75 border border-surface-border hover:border-[#c8dca9] focus:border-primary-dark focus:ring-2 focus:ring-primary/40 resize-none"
           />
-        </div>
+        </div>}
 
         {/* 제출/취소 버튼 */}
         <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-3 pt-3 border-t border-surface-border">

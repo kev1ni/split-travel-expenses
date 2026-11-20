@@ -1,12 +1,40 @@
+import { expenseView } from './dbViews';
+import { toMinorUnits } from '../utils/splitCalculator';
 import { API_ENDPOINTS, ApiError, apiRequest, isMockMode, simulateMockDelay } from './apiClient';
 import { getCurrencyMeta } from '../constants/currencies';
 import { convertToKrwExact } from '../utils/currencyMath';
 import { mockStore } from './mockData';
 
+function splitPayload(payload, totalKrw) {
+  if (payload.splitType !== 'CUSTOM') {
+    return payload.splits.map(s => ({member_id: Number(s.memberId)}));
+  }
+  // Convert the exact original-currency shares proportionally, distributing only rounding won.
+  const shares = payload.splits.map(s => BigInt(toMinorUnits(s.amount, payload.currency)));
+  const total = shares.reduce((a, b) => a + b, 0n);
+  if (total <= 0n) throw new ApiError('직접 분할 금액을 확인해 주세요.', 400);
+  const won = BigInt(totalKrw);
+  const amounts = shares.map(n => Number(n * won / total));
+  const order = shares.map((n, i) => ({i, rem: n * won % total}))
+    .sort((a, b) => a.rem === b.rem ? a.i - b.i : a.rem > b.rem ? -1 : 1);
+  const remainder = totalKrw - amounts.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < remainder; i++) amounts[order[i].i]++;
+  return payload.splits.map((s, i) => ({member_id: Number(s.memberId), krw_amount: amounts[i]}));
+}
+
 export const expenseService = {
   async getTripExpenses(tripId) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.trips.expenses(tripId), { method: 'GET' });
+      const expenses = [];
+      let page = 1;
+      let total;
+      do {
+        const result = await apiRequest(`${API_ENDPOINTS.trips.expenses(tripId)}?page=${page++}&page_size=100`);
+        expenses.push(...result.data.map(expenseView));
+        total = result.pagination?.total ?? expenses.length;
+        if (!result.data.length) break;
+      } while (expenses.length < total);
+      return {expenses};
     }
 
     await simulateMockDelay(200);
@@ -28,10 +56,18 @@ export const expenseService = {
    */
   async createExpense(tripId, payload) {
     if (!isMockMode()) {
-      return apiRequest(API_ENDPOINTS.trips.expenses(tripId), {
+      const total = payload.billedKrwAmount ?? payload.amountKrw ?? convertToKrwExact(payload.amount, payload.exchangeRate);
+      const timestamp = new Date(`${payload.expenseDate}T${payload.expenseTime || '12:00'}`);
+      const {data} = await apiRequest(API_ENDPOINTS.trips.expenses(tripId), {
         method: 'POST',
-        body: payload,
+        body: {title: payload.title, category: payload.category, payment_method: payload.paymentMethod.toLowerCase(),
+          entry_type: payload.cardEventId ? 'auto_card' : 'manual', payer_member_id: Number(payload.payerMemberId),
+          amount: payload.amount, currency: payload.currency, exchange_rate: payload.exchangeRate,
+          rate_date: payload.exchangeRateDate, krw_amount: total, occurred_at: timestamp.toISOString(),
+          split_type: payload.splitType === 'CUSTOM' ? 'exact' : 'equal', splits: splitPayload(payload, total),
+          ...(payload.cardEventId && {card_event_id: payload.cardEventId})},
       });
+      return {expense: expenseView(data)};
     }
 
     await simulateMockDelay(320);

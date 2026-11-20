@@ -11,8 +11,9 @@ from routes.meta import bp as meta_bp
 from routes.settlements import bp as settlements_bp
 from routes.trips import bp as trips_bp
 from routes.users import bp as users_bp
+from routes.web import bp as web_bp
 
-BLUEPRINTS = (meta_bp, users_bp, trips_bp, expenses_bp, settlements_bp, exchanges_bp, card_events_bp)
+BLUEPRINTS = (meta_bp, users_bp, trips_bp, expenses_bp, settlements_bp, exchanges_bp, card_events_bp, web_bp)
 
 
 def register_blueprints(app: Flask) -> None:

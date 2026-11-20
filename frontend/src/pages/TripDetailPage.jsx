@@ -148,7 +148,7 @@ export function TripDetailPage() {
             {/* 2. 참여 중인 친구 목록 */}
             <MemberList
               members={trip.members || []}
-              onAddGuest={handleAddGuestMember}
+              onAddGuest={trip.isOwner === false ? undefined : handleAddGuestMember}
               onOpenInvite={() => setIsInviteModalOpen(true)}
             />
 

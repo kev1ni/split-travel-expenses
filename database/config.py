@@ -66,6 +66,7 @@ class Settings:
 
     # 카드 파싱 앱 → POST /api/card-events 호출 시 X-API-Key 헤더로 검사 (비우면 검사 안 함)
     parser_api_key: Optional[str] = field(default_factory=lambda: _env("PARSER_API_KEY"))
+    collector_signing_key: Optional[str] = field(default_factory=lambda: _env("COLLECTOR_SIGNING_KEY"))
 
     @property
     def supabase_key(self) -> Optional[str]:

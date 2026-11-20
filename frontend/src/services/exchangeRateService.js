@@ -31,17 +31,17 @@ export const exchangeRateService = {
     if (!isMockMode()) {
       const params = new URLSearchParams({
         base: normalizedBase,
-        target: normalizedTarget,
+        quote: normalizedTarget,
         date: rateDate,
       });
-      const data = await apiRequest(`${API_ENDPOINTS.exchangeRates}?${params.toString()}`, {
+      const {data} = await apiRequest(`${API_ENDPOINTS.exchangeRates}?${params.toString()}`, {
         method: 'GET',
       });
       return {
         base: data.base || normalizedBase,
-        target: data.target || normalizedTarget,
+        target: data.quote || normalizedTarget,
         rate: Number(data.rate),
-        date: data.date || rateDate,
+        date: data.rate_date || rateDate,
         source: data.source || 'API',
         isMockRate: false,
       };
