@@ -15,6 +15,7 @@
 -- =============================================================================
 
 -- 기존 테이블 및 함수 삭제 (외래 키 종속성 고려 CASCADE 삭제)
+DROP TABLE IF EXISTS web_guest_members;
 DROP TABLE IF EXISTS SETTLEMENTS CASCADE;
 DROP TABLE IF EXISTS EXPENSE_SPLITS CASCADE;
 DROP TABLE IF EXISTS CARD_EVENTS CASCADE;
@@ -22,6 +23,7 @@ DROP TABLE IF EXISTS EXPENSES CASCADE;
 DROP TABLE IF EXISTS CURRENCY_EXCHANGES CASCADE;
 DROP TABLE IF EXISTS TRIP_MEMBERS CASCADE;
 DROP TABLE IF EXISTS TRIPS CASCADE;
+DROP TABLE IF EXISTS WEB_SESSIONS CASCADE;
 DROP TABLE IF EXISTS USERS CASCADE;
 DROP FUNCTION IF EXISTS update_updated_at_column CASCADE;
 
@@ -45,8 +47,15 @@ CREATE TABLE USERS (
     login_id      VARCHAR(50) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     name          VARCHAR(50) NOT NULL,
-    email         VARCHAR(100) NOT NULL UNIQUE
+    email         VARCHAR(100) UNIQUE
 );
+
+CREATE TABLE IF NOT EXISTS web_sessions (
+    token_hash CHAR(64) PRIMARY KEY,
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+ALTER TABLE web_sessions ENABLE ROW LEVEL SECURITY;
 
 COMMENT ON TABLE USERS IS '사용자 계정 정보 테이블';
 COMMENT ON COLUMN USERS.id IS '사용자 고유 식별자 (PK)';
@@ -94,6 +103,14 @@ CREATE TABLE TRIP_MEMBERS (
     CONSTRAINT uq_trip_members_trip_user UNIQUE (trip_id, user_id),
     CONSTRAINT uq_trip_members_trip_nickname UNIQUE (trip_id, nickname)
 );
+
+CREATE TABLE IF NOT EXISTS web_guest_members (
+    token_hash CHAR(64) NOT NULL REFERENCES web_sessions(token_hash) ON DELETE CASCADE,
+    trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    member_id INTEGER NOT NULL REFERENCES trip_members(id) ON DELETE CASCADE,
+    PRIMARY KEY (token_hash, trip_id)
+);
+ALTER TABLE web_guest_members ENABLE ROW LEVEL SECURITY;
 
 COMMENT ON TABLE TRIP_MEMBERS IS '여행 참여 멤버 매핑 테이블 (비회원 게스트 지원)';
 COMMENT ON COLUMN TRIP_MEMBERS.user_id IS '참여 회원 ID (비회원 게스트일 경우 NULL)';

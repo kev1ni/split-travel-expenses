@@ -51,7 +51,7 @@ class LiveTest:
         settings.parser_api_key = None  # 내부 호출이라 API 키 검사 생략
         from app import create_app
 
-        self.client = create_app().test_client()
+        self.client = create_app(legacy_test=True).test_client()
 
     # ------------------------------------------------------------
     # 도우미

@@ -15,7 +15,7 @@ LOGIN_ERROR_MESSAGE = "아이디 또는 비밀번호를 틀렸습니다."
 PUBLIC_USER_FIELDS = ("id", "login_id", "name", "email")
 
 
-def register_user(data: Dict[str, Any]) -> Dict[str, Any]:
+def register_user(data: Dict[str, Any], *, optional_email=False) -> Dict[str, Any]:
     """
     회원가입. 비밀번호는 "password" 키 권장 ("password_hash" 키도 하위 호환).
     응답에는 password_hash를 포함하지 않습니다.
@@ -24,7 +24,7 @@ def register_user(data: Dict[str, Any]) -> Dict[str, Any]:
 
     login_id = text(data.get("login_id"), "login_id", required=True, max_len=50)
     name = text(data.get("name"), "name", required=True, max_len=50)
-    user_email = email(data.get("email"))
+    user_email = None if optional_email and not data.get("email") else email(data.get("email"))
     raw_password = data.get("password") or data.get("password_hash")
     if not raw_password or not str(raw_password).strip():
         raise ValidationError("비밀번호(password)는 필수 항목입니다.")
@@ -33,7 +33,7 @@ def register_user(data: Dict[str, Any]) -> Dict[str, Any]:
 
     if client.table(TABLE_USERS).select("id").eq("login_id", login_id).execute().data:
         raise ConflictError(f"이미 존재하는 아이디(login_id)입니다: {login_id}")
-    if client.table(TABLE_USERS).select("id").eq("email", user_email).execute().data:
+    if user_email and client.table(TABLE_USERS).select("id").eq("email", user_email).execute().data:
         raise ConflictError(f"이미 존재하는 이메일(email)입니다: {user_email}")
 
     payload = {
