@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #a8e66b;
+  --color-primary-hover: #92d653;
+  --color-dark-green: #477d27;
+  --color-light-green: #ddf4ba;
+  --color-bg: #f5fbef;
+  --color-white: #ffffff;
+  --color-text-main: #26372a;
+  --color-text-secondary: #7b8978;
+  --color-border: #e4edd9;
+  --color-error: #e86b6b;
+}
+
+@layer base {
+  html,
+  body {
+    overflow-x: hidden;
+    background-color: var(--color-bg);
+    color: var(--color-text-main);
+    font-family: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont,
+      'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  *:focus-visible {
+    outline: 2px solid var(--color-dark-green);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .ntrip-card {
+    @apply bg-surface-card border border-surface-border rounded-card shadow-soft;
+  }
+
+  .ntrip-page-enter {
+    @apply animate-fade-up;
+  }
+}
