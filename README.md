@@ -1,5 +1,8 @@
 # 🌿 N빵트립 (NTrip)
 
+[React 프론트엔드 실행](frontend/README.md) · [팀 API 명세](docs/API.md) · [Flask·Supabase 설정](database/README.md) · [모바일 수집기](card-collector/README.md)
+
+
 ### ✈️ 여행은 함께, 정산은 간편하게!
 
 **N빵트립(NTrip)**은 친구들과 함께하는 여행에서 발생하는 경비를 간편하게 기록하고, 각자의 부담 금액을 자동으로 계산해 주는 **여행 경비 관리 및 정산 웹 서비스**입니다.
