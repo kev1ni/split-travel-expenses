@@ -1,0 +1,6 @@
+supabase>=2.0.0
+python-dotenv>=1.0.0
+Flask>=3.0.0
+flask-cors>=4.0.0
+# 운영용 WSGI 서버 (Windows 지원). 없으면 Flask 개발 서버로 실행됨
+waitress>=3.0.0
