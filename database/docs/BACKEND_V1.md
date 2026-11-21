@@ -1,6 +1,6 @@
 # NTrip 백엔드 실행과 연결
 
-팀의 [API 명세](../../docs/API.md)에 맞춘 Flask API 주소는 `/api/v1`이다. `backend` 브랜치에는 Supabase 스키마와 서버가 들어 있다. `integration/collector-web` 브랜치에는 같은 서버와 React 프론트, 갤럭시 APK, 아이폰 단축어가 함께 있다.
+팀의 [API 명세](../../docs/API.md)에 맞춘 Flask API 주소는 `/api/v1`이다. `feature/backend` 브랜치에는 Supabase 스키마와 서버가 들어 있다. `integration/collector-web` 브랜치에는 같은 서버와 React 프론트, 갤럭시 APK, 아이폰 단축어가 함께 있다.
 
 ## 1. DB 준비
 
