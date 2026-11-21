@@ -1,6 +1,6 @@
 # NTrip 백엔드 실행과 연결
 
-팀의 [API 명세](../../docs/API.md)에 맞춘 Flask API 주소는 `/api/v1`이다. `feature/backend` 브랜치에는 Supabase 스키마와 서버가 들어 있다. `integration/collector-web` 브랜치에는 같은 서버와 React 프론트, 갤럭시 APK, 아이폰 단축어가 함께 있다.
+팀의 [API 명세](../../docs/API.md)에 맞춘 Flask API 주소는 `/api/v1`이다. `feature/backend` 브랜치에는 Supabase 스키마와 서버가 들어 있다. 팀 전체 테스트는 `develop`에서 진행한다. 이 브랜치에는 서버와 React 프론트, 갤럭시 APK, 아이폰 단축어가 함께 있다.
 
 ## 1. DB 준비
 
@@ -28,7 +28,7 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 ## 3. React와 휴대폰 연결
 
-통합 브랜치에서 `cd frontend` → `npm ci` → `npm run dev`를 실행한다. 웹은 기본적으로 실제 API를 호출하고 Vite가 `/api`를 Flask로 전달한다. `npm run build` 후에는 Flask 한 프로세스가 같은 주소에서 결과물과 API를 함께 제공한다.
+`git switch develop`과 `git pull --ff-only`로 최신 코드를 받은 뒤 `cd frontend` → `npm ci` → `npm run dev`를 실행한다. 웹은 기본적으로 실제 API를 호출하고 Vite가 `/api`를 Flask로 전달한다. `npm run build` 후에는 Flask 한 프로세스가 같은 주소에서 결과물과 API를 함께 제공한다.
 
 1. 웹에서 회원가입·로그인 후 여행을 만든다. 친구는 초대 링크에서 닉네임을 입력해 게스트로 참여할 수 있다.
 2. 여행의 **카드 지출 → 휴대폰 수집기 연결**에서 결제자를 선택하고 계정 비밀번호로 연결 토큰을 발급한다. 본인의 결제자를 연결할 수 있고 방장은 여행의 게스트도 연결할 수 있다.
