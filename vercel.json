@@ -4,17 +4,23 @@
     "web": {
       "root": "frontend",
       "framework": "vite",
+      "headers": [
+        {
+          "source": "/api/:path*",
+          "headers": [
+            { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
+            { "key": "Cache-Control", "value": "private, no-store" }
+          ]
+        }
+      ],
       "rewrites": [
+        { "source": "/api", "destination": "https://split-travel-api.onrender.com/api" },
+        { "source": "/api/:path*", "destination": "https://split-travel-api.onrender.com/api/:path*" },
         { "source": "/(.*)", "destination": "/index.html" }
       ]
-    },
-    "backend": {
-      "root": "database",
-      "framework": "flask"
     }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": { "service": "backend" } },
     { "source": "/(.*)", "destination": { "service": "web" } }
   ]
 }
