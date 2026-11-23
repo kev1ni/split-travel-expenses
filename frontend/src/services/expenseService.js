@@ -23,6 +23,12 @@ function splitPayload(payload, totalKrw) {
 }
 
 export const expenseService = {
+  async getRecentTripExpenses(tripId) {
+    if (isMockMode()) return this.getTripExpenses(tripId);
+    const result = await apiRequest(`${API_ENDPOINTS.trips.expenses(tripId)}?page=1&page_size=3`);
+    return {expenses: result.data.map(expenseView)};
+  },
+
   async getTripExpenses(tripId) {
     if (!isMockMode()) {
       const expenses = [];

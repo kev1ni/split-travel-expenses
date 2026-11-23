@@ -12,12 +12,11 @@ import hmac
 import logging
 import os
 from pathlib import Path
-import secrets
 
 from flask import Flask, abort, request, send_from_directory
 from flask_cors import CORS
 
-from config import settings
+from config import session_signing_key, settings
 from core.http import register_error_handlers, register_request_logging
 from routes import register_blueprints
 from routes.v1_finance import bp as finance_bp
@@ -28,7 +27,7 @@ logger = logging.getLogger("split_travel")
 
 def create_app(*, legacy_test=False) -> Flask:
     app = Flask(__name__)
-    app.secret_key = os.environ.get("NTRIP_SESSION_SECRET") or secrets.token_hex(32)
+    app.secret_key = session_signing_key()
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                       SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "").lower() == "true",
                       MAX_CONTENT_LENGTH=128 * 1024)

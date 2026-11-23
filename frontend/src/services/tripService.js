@@ -55,6 +55,16 @@ function findTripById(tripId) {
 }
 
 export const tripService = {
+  async getTripOptions() {
+    if (isMockMode()) {
+      return {trips: mockStore.trips.map(({id, title, startDate, endDate}) => ({id, title, startDate, endDate}))};
+    }
+    const {data} = await apiRequest(API_ENDPOINTS.trips.list);
+    return {trips: data.map(trip => ({
+      id: String(trip.id), title: trip.title, startDate: trip.start_date, endDate: trip.end_date,
+    }))};
+  },
+
   async getDashboard(currentUser) {
     if (!isMockMode()) {
       const {trips} = await this.getTrips();
@@ -107,6 +117,12 @@ export const tripService = {
     };
   },
 
+  async getTripSummaries() {
+    if (isMockMode()) return this.getTrips();
+    const {data} = await apiRequest(`${API_ENDPOINTS.trips.list}?include=summary`);
+    return {trips: data.map(tripView)};
+  },
+
   async getTrips() {
     if (!isMockMode()) {
       const {data} = await apiRequest(API_ENDPOINTS.trips.list);
@@ -118,6 +134,12 @@ export const tripService = {
       isMockData: true,
       trips: mockStore.trips.map(computeTripSummary),
     };
+  },
+
+  async getSettlementDetail(tripId) {
+    if (isMockMode()) return this.getTripDetail(tripId);
+    const {data} = await apiRequest(`${API_ENDPOINTS.trips.detail(tripId)}?include=settlement`);
+    return tripView(data);
   },
 
   async getTripDetail(tripId) {

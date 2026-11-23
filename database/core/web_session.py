@@ -21,6 +21,8 @@ SESSION_AGE = 7 * 24 * 3600
 
 
 def _signer():
+    if not current_app.secret_key:
+        raise AppError("서버에 NTRIP_SESSION_SECRET을 설정한 뒤 다시 로그인해 주세요.", 503)
     return URLSafeTimedSerializer(current_app.secret_key, salt="ntrip-user-session-v1")
 
 
@@ -30,10 +32,10 @@ def _key(nonce):
 
 def start_session(user_id=None):
     nonce = secrets.token_urlsafe(32)
+    token = _signer().dumps(nonce)
     expires = datetime.now(timezone.utc) + timedelta(seconds=SESSION_AGE)
     row = {"token_hash": _key(nonce), "user_id": user_id, "expires_at": expires.isoformat()}
     get_supabase_client().table("web_sessions").insert(row).execute()
-    token = _signer().dumps(nonce)
     session.clear()
     session["access"] = token
     g.web_identity = row

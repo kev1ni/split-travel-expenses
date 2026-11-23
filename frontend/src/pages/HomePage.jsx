@@ -29,7 +29,7 @@ export function HomePage() {
     setIsLoading(true);
     setError('');
     try {
-      const data = await tripService.getDashboard(user);
+      const data = await tripService.getTripSummaries();
       const loadedTrips = data?.trips || [];
       setTrips(loadedTrips);
 
@@ -65,7 +65,7 @@ export function HomePage() {
 
     let active = true;
     expenseService
-      .getTripExpenses(selectedTripId)
+      .getRecentTripExpenses(selectedTripId)
       .then((res) => {
         if (active) {
           setSelectedTripExpenses(res?.expenses || res || []);

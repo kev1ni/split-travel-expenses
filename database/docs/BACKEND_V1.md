@@ -19,6 +19,8 @@ Copy-Item database/.env.example database/.env
 
 `database/.env`에 Supabase 프로젝트 URL과 서버 키를 설정한다. `NTRIP_SESSION_SECRET`과 `COLLECTOR_SIGNING_KEY`는 아래 명령을 각각 실행해 얻은 서로 다른 값으로 채운다. 재시작 후 기존 로그인 및 휴대폰 연결을 유지하려면 같은 키를 사용한다.
 
+`NTRIP_SESSION_SECRET`을 생략하면 서버는 Supabase의 secret 또는 service-role 키에서 웹 세션 전용 서명 키를 파생한다. 같은 키를 쓰는 모든 Vercel 인스턴스가 로그인을 공유한다. 예전 임시 키로 로그인했거나 사용 중인 서명 키가 바뀐 사용자는 한 번 다시 로그인해야 한다.
+
 ```powershell
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 .\.venv\Scripts\python database/app.py

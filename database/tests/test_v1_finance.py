@@ -56,6 +56,15 @@ def finance_scenario(app):
     assert call(owner, "GET", path + "/settlements") == []
     plan = call(owner, "POST", path + "/settlements", 201)
     assert call(owner, "POST", path + "/settlements", 201)[0]["id"] == plan[0]["id"]
+    def check_settlement_detail(client):
+        detail = call(client, "GET", path)
+        focused = call(client, "GET", path + "?include=settlement")
+        for key in ("id", "my_member_id", "total_krw_amount", "my_unsettled_krw_amount", "balances", "settlements"):
+            assert focused[key] == detail[key]
+        assert focused["expense_count"] == len(detail["expenses"])
+        assert "expenses" not in focused
+
+    check_settlement_detail(guest)
     transfer = path + "/settlements/" + str(plan[0]["id"])
     done = call(guest, "PATCH", transfer, body={"status": "completed"})
     assert call(guest, "PATCH", transfer, body={"status": "completed"})["completed_at"] == done["completed_at"]
@@ -64,6 +73,17 @@ def finance_scenario(app):
     extra = call(owner, "POST", path + "/expenses", 201, dict(details, title="삭제 시험"))
     call(owner, "DELETE", path + "/expenses/" + str(extra["id"]))
     call(owner, "GET", path + "/expenses/" + str(extra["id"]), 404)
+    for client in (owner, guest):
+        summary, = call(client, "GET", "/trips?include=summary")
+        detail = call(client, "GET", path)
+        for key in ("id", "title", "my_member_id", "member_count", "total_krw_amount", "my_unsettled_krw_amount"):
+            assert summary[key] == detail[key]
+        assert summary["expense_count"] == len(detail["expenses"])
+        assert summary["has_unsettled_balance"] == any(b["outstanding_balance"] for b in detail["balances"])
+        assert "expenses" not in summary
+    call(outsider, "GET", "/trips?include=summary", 401)
+    check_settlement_detail(owner)
+    call(outsider, "GET", path + "?include=settlement", 401)
     call(owner, "POST", "/auth/logout")
     assert outsider.get(base + "/auth/me", headers={"Authorization": "Bearer " + token}).status_code == 401
 

@@ -46,7 +46,7 @@ export function TripsPage() {
     setIsLoading(true);
     setError('');
     try {
-      const res = await tripService.getTrips();
+      const res = await tripService.getTripSummaries();
       setTrips(res?.trips || res || []);
     } catch (err) {
       setError(err.message || '여행 목록을 불러오지 못했어요.');

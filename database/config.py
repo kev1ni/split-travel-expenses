@@ -4,8 +4,12 @@
 다른 모듈은 os.environ을 직접 읽지 말고 `from config import settings`를 사용합니다.
 """
 
+import base64
+import hmac
+import json
 import os
 import re
+import secrets
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone
 from typing import List, Optional
@@ -28,6 +32,32 @@ def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     if value is None or not value.strip():
         return default
     return value.strip()
+
+
+def _is_server_key(value: str) -> bool:
+    if value.startswith("sb_secret_"):
+        return True
+    # Legacy Supabase JWTs may be either public anon or server-only service_role.
+    # Classify only operator-supplied configuration, never a request credential.
+    try:
+        _, payload, signature = value.split(".")
+        claims = json.loads(base64.urlsafe_b64decode(payload + "==="))
+        return bool(signature) and isinstance(claims, dict) and claims.get("role") == "service_role"
+    except ValueError:
+        return False
+
+
+def session_signing_key():
+    explicit = os.environ.get("NTRIP_SESSION_SECRET")
+    if explicit:
+        return explicit
+    for name in ("SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_KEY"):
+        credential = _env(name)
+        if credential and _is_server_key(credential):
+            return hmac.digest(credential.encode(), b"ntrip:web-session-signing:v1", "sha256")
+    if _env("VERCEL") or _env("SUPABASE_URL"):
+        return None
+    return secrets.token_hex(32)  # Isolated local development without a configured DB.
 
 
 def _env_bool(name: str, default: bool = False) -> bool:

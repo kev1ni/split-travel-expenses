@@ -94,13 +94,13 @@ export function LoginPage() {
             </div>
           )}
 
-          {serverError && (
+          {(serverError || location.state?.sessionExpired) && (
             <div
               role="alert"
               className="mb-5 flex items-start gap-2.5 p-3.5 rounded-[14px] bg-danger/10 border border-danger/20 text-danger text-sm font-medium"
             >
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" aria-hidden="true" />
-              <p>{serverError}</p>
+              <p>{serverError || '로그인 세션이 끝났어요. 다시 로그인하면 보던 화면으로 돌아가요.'}</p>
             </div>
           )}
 

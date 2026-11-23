@@ -47,3 +47,43 @@ def test_v1_accounts_guests_and_trip_membership():
     call(mobile, "POST", "/auth/logout", 200, headers=bearer)
     call(owner, "GET", "/auth/me", 401)
     call(mobile, "GET", "/auth/me", 401, headers=bearer)
+
+
+def test_web_session_survives_worker_switch_and_revocation(monkeypatch):
+    monkeypatch.delenv("NTRIP_SESSION_SECRET", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_test_only")
+    set_supabase_client(FakeClient())
+    first, second = create_app().test_client(), create_app().test_client()
+    credentials = {"login_id": "worker-test", "password": "test-password", "nickname": "팀장"}
+    assert first.post("/api/v1/auth/signup", json=credentials).status_code == 201
+    login = first.post("/api/v1/auth/login", json=credentials)
+    assert login.status_code == 200
+    bearer = {"Authorization": "Bearer " + login.json["data"]["access_token"]}
+    assert second.get("/api/v1/auth/me", headers=bearer).status_code == 200
+    second.set_cookie("session", first.get_cookie("session").value)
+    assert second.get("/api/v1/trips").status_code == 200
+    assert second.post("/api/v1/auth/logout").status_code == 200
+    assert first.get("/api/v1/auth/me").status_code == 401
+    assert first.get("/api/v1/auth/me", headers=bearer).status_code == 401
+
+
+def test_web_session_signing_key_selection(monkeypatch):
+    from config import session_signing_key
+
+    for name in ("NTRIP_SESSION_SECRET", "SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("SUPABASE_PUBLISHABLE_KEY", "sb_publishable_public")
+    monkeypatch.setenv("SUPABASE_KEY", "x.eyJyb2xlIjoiYW5vbiJ9.y")  # Legacy anon role.
+    assert session_signing_key() is None
+    set_supabase_client(FakeClient())
+    client = create_app().test_client()
+    credentials = {"login_id": "public-key", "password": "sample-password", "nickname": "테스트"}
+    assert client.post("/api/v1/auth/signup", json=credentials).status_code == 201
+    assert client.post("/api/v1/auth/login", json=credentials).status_code == 503
+    monkeypatch.setenv("SUPABASE_KEY", "x.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.y")  # Legacy service_role.
+    assert session_signing_key() == create_app().secret_key
+    assert isinstance(session_signing_key(), bytes)
+    monkeypatch.setenv("NTRIP_SESSION_SECRET", "existing-fixed-test-key")
+    assert create_app().secret_key == "existing-fixed-test-key"

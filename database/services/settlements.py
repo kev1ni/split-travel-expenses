@@ -23,19 +23,25 @@ def compute_trip_balances(client, trip_id: int) -> Dict[int, Dict[str, int]]:
     - sent / received : 송금 완료(completed)로 보낸 / 받은 금액
     - outstanding : 완료 송금 반영 후 남은 잔액 = net + sent - received
     """
-    balances: Dict[int, Dict[str, int]] = defaultdict(lambda: {"paid": 0, "owed": 0, "sent": 0, "received": 0})
-
-    for m in client.table(TABLE_TRIP_MEMBERS).select("id").eq("trip_id", trip_id).execute().data or []:
-        balances[m["id"]]
-    for e in client.table(TABLE_EXPENSES).select("payer_member_id, krw_amount").eq("trip_id", trip_id).execute().data or []:
-        balances[e["payer_member_id"]]["paid"] += int(e["krw_amount"])
-    for s in client.table(TABLE_EXPENSE_SPLITS).select("member_id, split_krw_amount").eq("trip_id", trip_id).execute().data or []:
-        balances[s["member_id"]]["owed"] += int(s["split_krw_amount"])
-    done = (
+    members = client.table(TABLE_TRIP_MEMBERS).select("id").eq("trip_id", trip_id).execute().data or []
+    expenses = client.table(TABLE_EXPENSES).select("payer_member_id, krw_amount").eq("trip_id", trip_id).execute().data or []
+    splits = client.table(TABLE_EXPENSE_SPLITS).select("member_id, split_krw_amount").eq("trip_id", trip_id).execute().data or []
+    completed = (
         client.table(TABLE_SETTLEMENTS).select("sender_member_id, receiver_member_id, amount")
         .eq("trip_id", trip_id).eq("status", "completed").execute().data or []
     )
-    for s in done:
+    return balances_from_rows(members, expenses, splits, completed)
+
+
+def balances_from_rows(members, expenses, splits, completed):
+    balances = defaultdict(lambda: {"paid": 0, "owed": 0, "sent": 0, "received": 0})
+    for m in members:
+        balances[m["id"]]
+    for e in expenses:
+        balances[e["payer_member_id"]]["paid"] += int(e["krw_amount"])
+    for s in splits:
+        balances[s["member_id"]]["owed"] += int(s["split_krw_amount"])
+    for s in completed:
         balances[s["sender_member_id"]]["sent"] += int(s["amount"])
         balances[s["receiver_member_id"]]["received"] += int(s["amount"])
 
@@ -69,9 +75,13 @@ def get_trip_balances(trip_id: int) -> List[Dict[str, Any]]:
     client = get_supabase_client()
     get_trip_or_404(client, trip_id)
     names = member_name_map(client, trip_id)
+    return balance_rows(trip_id, compute_trip_balances(client, trip_id), names)
+
+
+def balance_rows(trip_id, balances, names):
     return [
         {**_balance_view(trip_id, mid, b), "nickname": names.get(mid, UNKNOWN_NICKNAME)}
-        for mid, b in sorted(compute_trip_balances(client, trip_id).items())
+        for mid, b in sorted(balances.items())
     ]
 
 
@@ -130,7 +140,10 @@ def calculate_settlements(trip_id: int) -> List[Dict[str, Any]]:
 
 
 def _attach_names(client, trip_id: int, settlements: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    names = member_name_map(client, trip_id)
+    return named_settlements(settlements, member_name_map(client, trip_id))
+
+
+def named_settlements(settlements, names):
     for s in settlements:
         s["sender_nickname"] = names.get(s["sender_member_id"], UNKNOWN_NICKNAME)
         s["receiver_nickname"] = names.get(s["receiver_member_id"], UNKNOWN_NICKNAME)

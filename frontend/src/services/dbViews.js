@@ -48,14 +48,14 @@ export function tripView(row) {
   const country = TRAVEL_COUNTRIES.find(c => c.code === row.destination_country
     || row.destination_country === c.name || row.destination_country?.startsWith(c.name + ' '));
   const myBalance = Number(row.my_unsettled_krw_amount || 0);
-  const outstanding = memberSettlementSummary.some(b => b.outstandingKrw !== 0);
+  const outstanding = row.has_unsettled_balance ?? memberSettlementSummary.some(b => b.outstandingKrw !== 0);
   return {
     id: String(row.id), title: row.title, location: row.destination_country === country?.code ? country?.name : row.destination_country,
     countryCode: country?.code || 'OTHER', countryName: country?.name || row.destination_country || '',
     baseCurrency: row.destination_currency, description: row.description || '', startDate: row.start_date || '', endDate: row.end_date || '',
     inviteCode: row.share_code, members, memberCount: row.member_count ?? members.length, myMemberId: myId,
     isOwner: members.some(m => m.id === myId && m.role === 'OWNER'), expenses: (row.expenses || []).map(expenseView),
-    expenseCount: row.expenses?.length || 0, totalAmountKrw: Number(row.total_krw_amount || 0),
+    expenseCount: row.expense_count ?? row.expenses?.length ?? 0, totalAmountKrw: Number(row.total_krw_amount || 0),
     memberSettlementSummary, settlements, myPendingSendKrw: Math.max(0, -myBalance), myPendingReceiveKrw: Math.max(0, myBalance),
     myNetSettlementKrw: myBalance, settlementStatus: outstanding ? 'IN_PROGRESS' : 'SETTLED',
     settlementStatusLabel: outstanding ? '정산 진행 중' : '정산 완료',

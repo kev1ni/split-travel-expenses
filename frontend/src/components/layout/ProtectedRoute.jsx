@@ -3,7 +3,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { LoadingSpinner } from '../common/LoadingSpinner';
 
 export function ProtectedRoute({ children }) {
-  const { isAuthenticated, isInitializing } = useAuth();
+  const { isAuthenticated, isInitializing, sessionExpired } = useAuth();
   const location = useLocation();
 
   if (isInitializing) {
@@ -15,7 +15,7 @@ export function ProtectedRoute({ children }) {
       <Navigate
         to="/login"
         replace
-        state={{ from: `${location.pathname}${location.search}` }}
+        state={{ from: `${location.pathname}${location.search}${location.hash}`, sessionExpired }}
       />
     );
   }

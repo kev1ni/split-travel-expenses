@@ -1,5 +1,5 @@
 """Browser and bearer API for user accounts, trips, and invitations."""
-from flask import Blueprint
+from flask import Blueprint, request
 
 from core.db import TABLE_CARD_EVENTS, TABLE_TRIPS, TABLE_TRIP_MEMBERS, get_supabase_client
 from core.errors import AuthError, ConflictError, NotFoundError, ValidationError
@@ -8,6 +8,7 @@ from core.validators import currency, db_call, first, text, to_date
 from core.web_session import (account, find_member, guest_trips, identity, logout_session,
                               remember_guest, require_user, start_session, trip_member)
 from services import expenses, settlements, trips, users
+from services.trip_summaries import get_settlement_detail, get_trip_summaries
 
 bp = Blueprint("web", __name__)
 
@@ -52,6 +53,11 @@ def logout():
 
 @bp.get("/v1/trips")
 def list_my_trips():
+    if request.args.get("include") == "summary":
+        session_row = identity()
+        if not session_row:
+            raise AuthError("로그인하거나 여행 초대로 참여해 주세요.")
+        return {"data": get_trip_summaries(session_row)}
     user = account()
     if user:
         return {"data": users.get_user_trips(user["id"])}
@@ -72,6 +78,8 @@ def create_trip():
 @bp.get("/v1/trips/<int:trip_id>")
 def trip_detail(trip_id):
     member = trip_member(trip_id)
+    if request.args.get("include") == "settlement":
+        return {"data": get_settlement_detail(trip_id, member)}
     trip = trips.get_trip_detail(trip_id)
     balances = settlements.get_trip_balances(trip_id)
     my_net = next((b["outstanding_balance"] for b in balances if b["member_id"] == member["id"]), 0)

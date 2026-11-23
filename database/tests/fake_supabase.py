@@ -22,6 +22,7 @@ class Query:
             g=f; f=lambda r: not g(r); self._neg=False
         self.filters.append(f); return self
     def eq(self,c,v): return self._add(lambda r: r.get(c)==v)
+    def gt(self,c,v): return self._add(lambda r: r.get(c) is not None and r[c]>v)
     def in_(self,c,vs): vs=list(vs); return self._add(lambda r: r.get(c) in vs)
     def is_(self,c,v): assert v=="null"; return self._add(lambda r: r.get(c) is None)
     def gte(self,c,v): return self._add(lambda r: r.get(c) is not None and str(r.get(c))>=v)

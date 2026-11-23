@@ -8,6 +8,7 @@
 export const API_MODE = import.meta.env.VITE_API_MODE === 'mock' ? 'mock' : 'api';
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+export const SESSION_CHECK_EVENT = 'ntrip:check-session';
 
 export function isMockMode() {
   return API_MODE === 'mock';
@@ -88,6 +89,11 @@ export async function apiRequest(path, options = {}) {
   }
 
   if (!response.ok) {
+    // A rejected login or collector password doesn't end the browser session.
+    if (response.status === 401 && method === 'GET' &&
+        /^\/api\/(?:v1\/trips|card-events\/unassigned)(?:[/?]|$)/.test(path)) {
+      window.dispatchEvent(new Event(SESSION_CHECK_EVENT));
+    }
     const message =
       data?.message ||
       data?.error?.message ||

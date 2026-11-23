@@ -31,8 +31,10 @@ export function SettlementsPage() {
   const queryTripId = searchParams.get('tripId') || '';
 
   const [trips, setTrips] = useState([]);
-  const [selectedTripId, setSelectedTripId] = useState(queryTripId);
-  const [tripDetail, setTripDetail] = useState(null);
+  const selectedTripId = trips.find((trip) => trip.id === queryTripId)?.id || pickDefaultFeaturedTrip(trips)?.id;
+  const [loadedDetail, setLoadedDetail] = useState(null);
+  const tripDetail = loadedDetail?.id === selectedTripId ? loadedDetail : null;
+  const [detailAttempt, setDetailAttempt] = useState(0);
   const [isLoadingTrips, setIsLoadingTrips] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [error, setError] = useState('');
@@ -42,56 +44,32 @@ export function SettlementsPage() {
     setIsLoadingTrips(true);
     setError('');
     try {
-      const res = await tripService.getTrips();
-      const loadedTrips = res?.trips || res || [];
-      setTrips(loadedTrips);
-
-      setSelectedTripId((prev) => {
-        if (queryTripId && loadedTrips.some((t) => t.id === queryTripId)) {
-          return queryTripId;
-        }
-        if (prev && loadedTrips.some((t) => t.id === prev)) {
-          return prev;
-        }
-        const featured = pickDefaultFeaturedTrip(loadedTrips);
-        return featured?.id || '';
-      });
+      const {trips: options} = await tripService.getTripOptions();
+      setTrips(options);
     } catch (err) {
       setError(err.message || '여행 정보를 불러오지 못했어요.');
     } finally {
       setIsLoadingTrips(false);
     }
-  }, [queryTripId]);
+  }, []);
 
   useEffect(() => {
     loadTrips();
   }, [loadTrips]);
 
-  const loadTripDetail = useCallback(async (tripId) => {
-    if (!tripId) {
-      setTripDetail(null);
-      return;
-    }
+  useEffect(() => {
+    if (!selectedTripId) return;
+    let current = true;
     setIsLoadingDetail(true);
     setError('');
-    try {
-      const detail = await tripService.getTripDetail(tripId);
-      setTripDetail(detail);
-    } catch (err) {
-      setError(err.message || '정산 내역을 불러오지 못했어요.');
-    } finally {
-      setIsLoadingDetail(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (selectedTripId) {
-      loadTripDetail(selectedTripId);
-    }
-  }, [selectedTripId, loadTripDetail]);
+    tripService.getSettlementDetail(selectedTripId)
+      .then((detail) => { if (current) setLoadedDetail(detail); })
+      .catch((err) => { if (current) setError(err.message || '정산 내역을 불러오지 못했어요.'); })
+      .finally(() => { if (current) setIsLoadingDetail(false); });
+    return () => { current = false; };
+  }, [selectedTripId, detailAttempt]);
 
   const handleSelectTrip = (tripId) => {
-    setSelectedTripId(tripId);
     setSearchParams({ tripId }, { replace: true });
   };
 
@@ -105,7 +83,7 @@ export function SettlementsPage() {
     try {
       const path = `/api/v1/trips/${tripDetail.id}/settlements`;
       await apiRequest(id ? `${path}/${id}` : path, {method: id ? 'PATCH' : 'POST', body: id ? {status: 'completed'} : {}});
-      await loadTripDetail(tripDetail.id);
+      setDetailAttempt((attempt) => attempt + 1);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -179,7 +157,7 @@ export function SettlementsPage() {
               <AlertCircle className="w-5 h-5 shrink-0" />
               <span>{error}</span>
             </div>
-            <Button variant="secondary" size="sm" onClick={loadTrips}>
+            <Button variant="secondary" size="sm" onClick={() => selectedTripId ? setDetailAttempt((n) => n + 1) : loadTrips()}>
               <RefreshCw className="w-4 h-4" />
               다시 시도
             </Button>

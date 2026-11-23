@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Wallet,
@@ -24,77 +24,55 @@ export function ExpensesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const queryTripId = searchParams.get('tripId') || '';
 
-  const [trips, setTrips] = useState([]);
-  const [selectedTripId, setSelectedTripId] = useState(queryTripId);
-  const [expenses, setExpenses] = useState([]);
-  const [isLoadingTrips, setIsLoadingTrips] = useState(true);
-  const [isLoadingExpenses, setIsLoadingExpenses] = useState(false);
-  const [error, setError] = useState('');
-
-  const loadTrips = useCallback(async () => {
-    setIsLoadingTrips(true);
-    setError('');
-    try {
-      const res = await tripService.getTrips();
-      const loadedTrips = res?.trips || res || [];
-      setTrips(loadedTrips);
-
-      setSelectedTripId((prev) => {
-        if (queryTripId && loadedTrips.some((t) => t.id === queryTripId)) {
-          return queryTripId;
-        }
-        if (prev && loadedTrips.some((t) => t.id === prev)) {
-          return prev;
-        }
-        const featured = pickDefaultFeaturedTrip(loadedTrips);
-        return featured?.id || '';
-      });
-    } catch (err) {
-      setError(err.message || '여행 목록을 불러오지 못했어요.');
-    } finally {
-      setIsLoadingTrips(false);
-    }
-  }, [queryTripId]);
+  const [trips, setTrips] = useState(null);
+  const [tripListError, setTripListError] = useState('');
+  const [tripListAttempt, setTripListAttempt] = useState(0);
+  const [expenseResult, setExpenseResult] = useState(null);
+  const [expenseAttempt, setExpenseAttempt] = useState(0);
 
   useEffect(() => {
-    loadTrips();
-  }, [loadTrips]);
-
-  const loadExpenses = useCallback(async (tripId) => {
-    if (!tripId) {
-      setExpenses([]);
-      return;
-    }
-    setIsLoadingExpenses(true);
-    setError('');
-    try {
-      const res = await expenseService.getTripExpenses(tripId);
-      setExpenses(res?.expenses || res || []);
-    } catch (err) {
-      setError(err.message || '지출 내역을 불러오지 못했어요.');
-    } finally {
-      setIsLoadingExpenses(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (selectedTripId) {
-      loadExpenses(selectedTripId);
-    }
-  }, [selectedTripId, loadExpenses]);
-
-  const handleSelectTrip = (tripId) => {
-    setSelectedTripId(tripId);
-    setSearchParams({ tripId }, { replace: true });
-  };
+    let active = true;
+    tripService.getTripOptions().then(
+      ({trips: options}) => { if (active) setTrips(options); },
+      (err) => { if (active) setTripListError(err.message || '여행 목록을 불러오지 못했어요.'); },
+    );
+    return () => { active = false; };
+  }, [tripListAttempt]);
 
   const selectedTrip = useMemo(
-    () => trips.find((t) => t.id === selectedTripId) || null,
-    [trips, selectedTripId]
+    () => trips?.find((trip) => trip.id === queryTripId) || pickDefaultFeaturedTrip(trips),
+    [trips, queryTripId]
   );
+  const selectedTripId = selectedTrip?.id;
+
+  useEffect(() => {
+    if (!selectedTripId) return;
+    let active = true;
+    expenseService.getTripExpenses(selectedTripId).then(
+      ({expenses}) => { if (active) setExpenseResult({tripId: selectedTripId, expenses}); },
+      (err) => {
+        if (active) setExpenseResult({tripId: selectedTripId, error: err.message || '지출 내역을 불러오지 못했어요.'});
+      },
+    );
+    return () => { active = false; };
+  }, [selectedTripId, expenseAttempt]);
+
+  const currentResult = expenseResult?.tripId === selectedTripId ? expenseResult : null;
+  const expenses = currentResult?.expenses;
+  const error = tripListError || currentResult?.error;
+
+  function retry() {
+    if (tripListError) {
+      setTripListError('');
+      setTripListAttempt(attempt => attempt + 1);
+    } else {
+      setExpenseResult(null);
+      setExpenseAttempt(attempt => attempt + 1);
+    }
+  }
 
   const totals = useMemo(() => {
-    const active = expenses.filter((e) => e.eventType !== 'CANCELLED');
+    const active = (expenses || []).filter((e) => e.eventType !== 'CANCELLED');
     const all = active.reduce((sum, e) => sum + Number(e.amountKrw ?? e.amount ?? 0), 0);
     const cash = active
       .filter((e) => e.paymentMethod === 'CASH')
@@ -115,7 +93,7 @@ export function ExpensesPage() {
               경비 관리
             </h1>
 
-            {trips.length > 0 && (
+            {trips?.length > 0 && (
               <div className="relative inline-flex items-center">
                 <label htmlFor="expenses-trip-select" className="sr-only">
                   여행 선택
@@ -123,7 +101,7 @@ export function ExpensesPage() {
                 <select
                   id="expenses-trip-select"
                   value={selectedTripId}
-                  onChange={(e) => handleSelectTrip(e.target.value)}
+                  onChange={(e) => setSearchParams({ tripId: e.target.value }, { replace: true })}
                   className="appearance-none pl-4 pr-10 py-2.5 rounded-[14px] bg-surface-card border border-surface-border text-sm font-bold text-ink-main shadow-soft focus:border-primary-dark cursor-pointer"
                 >
                   {trips.map((trip) => (
@@ -162,7 +140,7 @@ export function ExpensesPage() {
           )}
         </section>
 
-        {isLoadingTrips ? (
+        {!trips && !tripListError ? (
           <LoadingSpinner label="여행 정보를 불러오고 있어요..." />
         ) : error ? (
           <Card className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -170,7 +148,7 @@ export function ExpensesPage() {
               <AlertCircle className="w-5 h-5 shrink-0" />
               <span>{error}</span>
             </div>
-            <Button variant="secondary" size="sm" onClick={loadTrips}>
+            <Button variant="secondary" size="sm" onClick={retry}>
               <RefreshCw className="w-4 h-4" />
               다시 시도
             </Button>
@@ -186,6 +164,8 @@ export function ExpensesPage() {
               </Link>
             }
           />
+        ) : !currentResult ? (
+          <LoadingSpinner label="지출 내역을 불러오고 있어요..." />
         ) : (
           <div className="space-y-5">
             {/* 슬림한 지출 합계 바 */}
@@ -211,35 +191,31 @@ export function ExpensesPage() {
             </div>
 
             {/* 전체 지출 목록 (필터 / 카테고리 / 정렬 / 상세 펼침) */}
-            {isLoadingExpenses ? (
-              <LoadingSpinner label="지출 내역을 불러오고 있어요..." />
-            ) : (
-              <ExpenseList
-                expenses={expenses}
-                title={`${selectedTrip.title} 전체 지출`}
-                showCategoryFilter
-                emptyAction={
-                  <div className="flex flex-wrap justify-center gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => navigate(`/trips/${selectedTrip.id}/expenses/cash`)}
-                    >
-                      <Wallet className="w-4 h-4" />
-                      현금 입력
-                    </Button>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => navigate(`/trips/${selectedTrip.id}/expenses/card`)}
-                    >
-                      <CreditCard className="w-4 h-4" />
-                      카드 등록
-                    </Button>
-                  </div>
-                }
-              />
-            )}
+            <ExpenseList
+              expenses={expenses}
+              title={`${selectedTrip.title} 전체 지출`}
+              showCategoryFilter
+              emptyAction={
+                <div className="flex flex-wrap justify-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => navigate(`/trips/${selectedTrip.id}/expenses/cash`)}
+                  >
+                    <Wallet className="w-4 h-4" />
+                    현금 입력
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => navigate(`/trips/${selectedTrip.id}/expenses/card`)}
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    카드 등록
+                  </Button>
+                </div>
+              }
+            />
           </div>
         )}
       </div>
