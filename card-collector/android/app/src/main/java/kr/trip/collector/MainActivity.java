@@ -91,7 +91,7 @@ public final class MainActivity extends Activity {
         content.addView(errorPanel);
 
         WebSettings options = web.getSettings();
-        options.setUserAgentString(options.getUserAgentString() + " NTripAndroid/0.5");
+        options.setUserAgentString(options.getUserAgentString() + " NTripAndroid/0.5.1");
         options.setJavaScriptEnabled(true);
         options.setDomStorageEnabled(true);
         options.setAllowFileAccess(false);

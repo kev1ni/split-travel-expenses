@@ -105,6 +105,9 @@ final class TripConnection {
             if (data.getLong("trip_id") != tripId || user <= 0 || payer <= 0 || title.isEmpty()
                     || !token.matches("[!-~]{1,2048}")) throw new JSONException("Invalid collector connection");
             String scope = CollectorStore.hash(ORIGIN + "|" + user + "|" + tripId + "|" + payer);
+            // Persist the WebView login before reporting a successful pairing, even if Android
+            // stops the process immediately afterwards. This request runs on the pairing worker.
+            CookieManager.getInstance().flush();
             return new TripConnection(title, scope, token, sessionFingerprint(cookie));
         } finally {
             c.disconnect();
