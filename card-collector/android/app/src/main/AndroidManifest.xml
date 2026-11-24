@@ -13,15 +13,18 @@
         </intent>
     </queries>
 
-    <application android:label="여행 카드 수집기"
+    <application android:label="N빵트립" android:icon="@drawable/trip_icon"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:allowBackup="false" android:usesCleartextTraffic="false">
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".MainActivity" android:exported="true"
+            android:enableOnBackInvokedCallback="true" android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".CollectorSettingsActivity" android:exported="false"
+            android:label="카드 수집 설정" android:windowSoftInputMode="adjustResize" />
         <receiver android:name=".CardSmsReceiver" android:exported="true"
             android:permission="android.permission.BROADCAST_SMS">
             <intent-filter>

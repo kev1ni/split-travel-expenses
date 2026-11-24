@@ -5,3 +5,7 @@ local.properties
 *.iml
 *.keystore
 *.jks
+!/dist/
+/dist/*
+!/dist/travel-card-collector-debug.apk
+!/dist/travel-demo-notifier-debug.apk

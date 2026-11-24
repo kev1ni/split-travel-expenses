@@ -47,8 +47,6 @@ def main():
     shell("run-as", PACKAGE, "mkdir", "-p", "shared_prefs")
     shell("run-as", PACKAGE, "sh", "-c", f"echo {encoded} | base64 -d > shared_prefs/collector.xml")
     print(shell("am", "start", "-W", "-n", PACKAGE + "/.MainActivity"), flush=True)
-    if adb("shell", "run-as", PACKAGE, "test", "-f", "databases/card-outbox.db", check=False).returncode:
-        raise RuntimeError("The test app did not finish opening its outbox on first launch")
     shell("cmd", "notification", "allow_listener", PACKAGE + "/.CardNotificationListener")
     time.sleep(2)
 

@@ -1,0 +1,16 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'kr.trip.demo.notifier'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'kr.trip.demo.notifier'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '1.0'
+    }
+}

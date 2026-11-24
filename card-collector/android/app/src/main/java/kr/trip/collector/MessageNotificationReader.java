@@ -72,6 +72,7 @@ final class MessageNotificationReader {
         return Collections.singletonList(new Entry(body, sender, time));
     }
 
+    @android.annotation.TargetApi(28)
     private static List<Entry> structured(List<Notification.MessagingStyle.Message> messages,
                                           Set<String> numbers, String displayName, String issuer,
                                           long since, long postedAt) {
