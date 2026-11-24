@@ -11,6 +11,7 @@ waitress가 설치돼 있고 디버그 모드가 아니면 waitress(운영용 WS
 import hmac
 import logging
 import os
+from datetime import timedelta
 from pathlib import Path
 
 from flask import Flask, abort, request, send_from_directory
@@ -18,6 +19,7 @@ from flask_cors import CORS
 
 from config import session_signing_key, settings
 from core.http import register_error_handlers, register_request_logging
+from core.web_session import SESSION_AGE
 from routes import register_blueprints
 from routes.v1_finance import bp as finance_bp
 
@@ -30,6 +32,8 @@ def create_app(*, legacy_test=False) -> Flask:
     app.secret_key = session_signing_key()
     app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax",
                       SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE", "").lower() == "true",
+                      PERMANENT_SESSION_LIFETIME=timedelta(seconds=SESSION_AGE),
+                      SESSION_REFRESH_EACH_REQUEST=False,
                       MAX_CONTENT_LENGTH=128 * 1024)
     app.json.ensure_ascii = False  # 한글을 \uXXXX 대신 그대로
     app.json.sort_keys = False

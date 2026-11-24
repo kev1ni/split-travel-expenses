@@ -1,6 +1,7 @@
 """Exercise automatic mobile expenses, retries, duplicates and signed refund amounts through Flask."""
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,6 +12,30 @@ from fake_supabase import FakeClient
 from app import create_app
 from config import settings
 from core.db import set_supabase_client
+from core.web_session import SESSION_AGE
+
+
+def test_android_login_survives_reopening_the_webview(monkeypatch):
+    monkeypatch.setattr("core.db._client", FakeClient())
+    app = create_app()
+    phone = app.test_client()
+    login = {"login_id": "mobile-relaunch", "password": "test-password"}
+    assert phone.post("/api/v1/auth/signup", json={**login, "nickname": "여행자"}).status_code == 201
+    headers = {"User-Agent": "Android WebView NTripAndroid/0.5"}
+    assert phone.post("/api/v1/auth/login", json=login, headers=headers).status_code == 200
+    cookie = phone.get_cookie("session")
+    assert cookie.expires is not None
+    lifetime = (cookie.expires - datetime.now(timezone.utc)).total_seconds()
+    assert SESSION_AGE - 60 < lifetime <= SESSION_AGE
+
+    # Reopening starts a new WebView and restores only persistent cookies.
+    reopened = app.test_client()
+    reopened.set_cookie("session", cookie.value)
+    me = reopened.get("/api/v1/auth/me", headers=headers)
+    assert me.status_code == 200 and me.get_json()["data"]["login_id"] == login["login_id"]
+    assert "Set-Cookie" not in me.headers  # The collector is bound to this cookie's fingerprint.
+    assert reopened.post("/api/v1/auth/logout").status_code == 200
+    assert phone.get("/api/v1/auth/me", headers=headers).status_code == 401
 
 
 def test_native_session_connection(monkeypatch):

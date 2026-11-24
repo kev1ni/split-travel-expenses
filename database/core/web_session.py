@@ -49,6 +49,9 @@ def start_session(user_id=None):
             sessions.delete().eq("token_hash", _key(previous_nonce)).execute()
     session.clear()
     session["access"] = token
+    if user_id is not None and any(part.startswith("NTripAndroid/") for part in request.user_agent.string.split()):
+        # Android can restart the WebView while the OS notification listener remains paired.
+        session.permanent = True
     g.web_identity = row
     return token
 
