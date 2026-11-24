@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import {
   Wallet,
@@ -21,54 +21,29 @@ import { ExpenseStatistics } from '../components/trips/ExpenseStatistics';
 import { ExpenseTypeSelector } from '../components/expenses/ExpenseTypeSelector';
 import { ExpenseList } from '../components/expenses/ExpenseList';
 import { tripService } from '../services/tripService';
-import { sumKrwIntegers } from '../utils/currencyMath';
+import { useLiveTripData } from '../hooks/useLiveTripData';
+import { countsTowardsExpenseTotal, sumKrwIntegers } from '../utils/currencyMath';
 import { formatKrw } from '../utils/formatters';
 
 export function TripDetailPage() {
   const { tripId } = useParams();
   const location = useLocation();
 
-  const [trip, setTrip] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { data: trip, isLoading, error, refresh } = useLiveTripData(tripId, tripService.getTripDetail);
   const [notice, setNotice] = useState(location.state?.notice || '');
 
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [isExpenseSelectorOpen, setIsExpenseSelectorOpen] = useState(false);
 
-  const loadTripDetail = useCallback(async () => {
-    setIsLoading(true);
-    setError('');
-    try {
-      const data = await tripService.getTripDetail(tripId);
-      setTrip(data);
-    } catch (err) {
-      setError(err.message || '여행 상세 정보를 불러오지 못했어요.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [tripId]);
-
-  useEffect(() => {
-    loadTripDetail();
-  }, [loadTripDetail]);
-
   const handleAddGuestMember = async (name) => {
-    const result = await tripService.addGuestMember(tripId, { name });
-    setTrip((prev) =>
-      prev
-        ? {
-            ...prev,
-            members: result.members || [...(prev.members || []), result.member],
-          }
-        : prev
-    );
+    await tripService.addGuestMember(tripId, { name });
+    refresh();
     setNotice(`비회원 친구 '${name}'님이 임시 멤버로 추가되었어요.`);
   };
 
   const expenseMetrics = useMemo(() => {
     const list = trip?.expenses || [];
-    const active = list.filter((e) => e.eventType !== 'CANCELLED');
+    const active = list.filter(countsTowardsExpenseTotal);
     const cashExpenses = list.filter((e) => e.paymentMethod === 'CASH');
     const cardExpenses = list.filter((e) => e.paymentMethod === 'CARD');
 
@@ -119,7 +94,7 @@ export function TripDetailPage() {
 
         {isLoading ? (
           <LoadingSpinner label="여행 상세 정보를 불러오고 있어요..." />
-        ) : error || !trip ? (
+        ) : !trip ? (
           <Card className="text-center py-12 space-y-4">
             <div className="w-12 h-12 rounded-2xl bg-danger/10 text-danger flex items-center justify-center mx-auto">
               <AlertCircle className="w-6 h-6" />
@@ -131,13 +106,14 @@ export function TripDetailPage() {
               <Link to="/home">
                 <Button variant="secondary">홈으로 돌아가기</Button>
               </Link>
-              <Button variant="primary" onClick={loadTripDetail}>
+              <Button variant="primary" onClick={refresh}>
                 다시 시도
               </Button>
             </div>
           </Card>
         ) : (
           <>
+            {error && <p role="alert" className="text-sm text-danger">{error}</p>}
             {/* 1. 여행 기본 정보 헤더 */}
             <TripDetailHeader
               trip={trip}
@@ -161,7 +137,7 @@ export function TripDetailPage() {
                 icon={Coins}
                 label="여행 총지출"
                 value={formatKrw(expenseMetrics.totalKrw)}
-                subText={`전체 ${trip.expenses?.length || 0}건 (취소 건 제외 합산)`}
+                subText={`전체 ${trip.expenses?.length || 0}건 · 취소 금액 반영`}
               />
               <SummaryCard
                 icon={Wallet}

@@ -186,15 +186,15 @@ EXECUTE FUNCTION update_updated_at_column();
 
 -- -----------------------------------------------------------------------------
 -- 6. CARD_EVENTS (카드 결제 원시 이벤트 로그 - 신규)
--- 카드 결제 문자(SMS), RCS, 앱 푸시 알림 등을 파싱하여 적재합니다.
--- 동일 결제가 2채널(RCS 1건 + 앱푸시 1건)로 중복 수신될 경우,
--- 2개의 CARD_EVENTS가 하나의 EXPENSES로 묶여 관리됩니다.
+-- 연결된 휴대폰에서 수집한 카드 앱 푸시를 기록합니다.
+-- 동일 푸시의 전송 재시도는 event_id로 식별하고 기존 수집 내역도 보존합니다.
 -- -----------------------------------------------------------------------------
 CREATE TABLE CARD_EVENTS (
     event_id        VARCHAR(36) PRIMARY KEY,
     trip_id         INTEGER,
     payer_member_id INTEGER,
     expense_id      INTEGER,
+    auto_registration_skipped BOOLEAN NOT NULL DEFAULT FALSE,
     source          VARCHAR(50),
     message_format  VARCHAR(50),
     issuer          VARCHAR(50),
@@ -212,7 +212,7 @@ CREATE TABLE CARD_EVENTS (
 );
 
 COMMENT ON TABLE CARD_EVENTS IS '카드 결제 원시 알림 이벤트 수신 로그 테이블';
-COMMENT ON COLUMN CARD_EVENTS.approval_ref IS '카드 승인번호 (중복 결제 식별 키)';
+COMMENT ON COLUMN CARD_EVENTS.approval_ref IS '카드 승인번호 (취소 시 원승인 조회)';
 
 -- -----------------------------------------------------------------------------
 -- 7. EXPENSE_SPLITS (지출 분담 상세)

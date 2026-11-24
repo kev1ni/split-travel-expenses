@@ -69,12 +69,12 @@ export function ExpenseTypeSelector({ isOpen, onClose, tripId, tripTitle }) {
                 카드 결제 등록
               </h3>
               <p className="text-sm text-ink-secondary mt-1.5 leading-relaxed">
-                카드 승인 문자나 알림 메시지를 붙여넣으면 분석 결과로 빠르게 등록해요.
+                휴대폰을 한 번 연결하면 카드 앱의 결제 승인 푸시가 여행 지출로 자동 등록돼요.
               </p>
             </div>
           </div>
           <span className="inline-flex items-center gap-1.5 text-sm font-bold text-primary-dark">
-            메시지 분석하기
+            카드 지출 열기
             <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
           </span>
         </button>

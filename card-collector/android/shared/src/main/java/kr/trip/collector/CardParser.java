@@ -48,7 +48,7 @@ public final class CardParser {
     private static final Pattern MERCHANT = Pattern.compile(
             "(?:^|[\\s|])(?:가맹점(?:명)?|사용처|이용처|merchant)[ \\t]*[:=][ \\t]*([^\\n|•;]{1,120})", CI);
     private static final Pattern HYUNDAI_ISSUER = Pattern.compile("현대(?:\\s*(?:카드|넥슨))?");
-    // For this RCS layout only, the branch name sits between a short local time and the cumulative total.
+    // For this issuer layout, the branch name sits between a short local time and the cumulative total.
     private static final Pattern HYUNDAI_NEXON_STORE = Pattern.compile(
             "(?:^|\\n)[ \\t]*(?:\\[Web발신\\]\\s*)?현대\\s+넥슨\\s+승인\\s+"
             + "[가-힣][*●]+[가-힣](?:님)?\\s+[0-9][0-9,]*원\\s+일시불\\s+"
@@ -68,12 +68,6 @@ public final class CardParser {
             + "([0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(?::[0-9]{2})?(?:Z|[+-][0-9]{2}:[0-9]{2}))");
 
     private CardParser() {}
-
-    static boolean matchesHyundaiNexonMessage(String issuer, String text) {
-        if (!HYUNDAI_ISSUER.matcher(issuer.trim()).matches() || text.length() > 8192) return false;
-        Matcher match = HYUNDAI_NEXON_STORE.matcher(Normalizer.normalize(text.trim(), Normalizer.Form.NFKC));
-        return match.matches() && !NON_STORE.matcher(match.group(1)).find();
-    }
 
     /** receivedMs identifies receipt time for the caller; it never supplies a missing transaction time. */
     public static Map<String, String> parse(String issuer, String title, String body, long receivedMs) {

@@ -14,8 +14,6 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 
-IOS = Path(__file__).resolve().parents[1] / "ios"
-NAME = "현대카드 승인 확인.shortcut"
 # SHA-256 of https://www.apple.com/certificateauthority/AppleRootCA-G3.cer
 APPLE_ROOT_G3 = "63343abfb89a6a03ebb57e9b3f5fa7be7c4f5c756f3017b3a8c488c3653e9179"
 
@@ -105,7 +103,14 @@ def load_signed_workflow(path: Path) -> dict:
 
 
 if __name__ == "__main__":
-    signed = load_signed_workflow(IOS / "배포용" / NAME)
-    original = plistlib.loads((IOS / NAME).read_bytes())
-    require(signed["WFWorkflowActions"] == original["WFWorkflowActions"], "Workflow actions differ")
+    import argparse
+
+    args = argparse.ArgumentParser(description="Compare a single-segment Apple-signed shortcut with its source.")
+    args.add_argument("signed", type=Path)
+    args.add_argument("source", type=Path)
+    options = args.parse_args()
+    signed = load_signed_workflow(options.signed)
+    original = plistlib.loads(options.source.read_bytes())
+    for field in ("WFWorkflowActions", "WFWorkflowImportQuestions", "WFWorkflowTypes", "WFWorkflowInputContentItemClasses"):
+        require(signed[field] == original[field], f"{field} differs")
     print(f"PASS: Apple certificate chain, ECDSA, archive/segment integrity, {len(signed['WFWorkflowActions'])} actions")

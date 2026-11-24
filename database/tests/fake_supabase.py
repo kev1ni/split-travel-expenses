@@ -68,6 +68,9 @@ class Query:
             if self.table=='expenses':
                 ids={r['id'] for r in rows}
                 self.db.tables['expense_splits']=[s for s in self.db.tables.get('expense_splits',[]) if s['expense_id'] not in ids]
+                for event in self.db.tables.get('card_events', []):
+                    if event.get('expense_id') in ids:
+                        event['expense_id'] = None
             if self.table=='trips':
                 ids={r['id'] for r in rows}
                 self.db.tables['trip_members']=[s for s in self.db.tables.get('trip_members',[]) if s['trip_id'] not in ids]

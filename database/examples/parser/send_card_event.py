@@ -10,7 +10,7 @@ POST /api/card-events 로 JSON을 보내면 됩니다.
 
 핵심 규칙
 1. event_id는 알림 1건마다 한 번 만든 UUID를 끝까지 재사용 → 재전송해도 중복 저장 안 됨 (200 + duplicate)
-2. approval_ref(승인번호) + issuer(카드사) + event_type 을 꼭 채우기 → 여러 채널로 온 같은 결제를 한 건으로 묶음
+2. 승인/취소를 구분하고 푸시에 표시된 승인번호가 있으면 전달
 3. 시각은 오프셋 포함 ISO 8601 (예: 2026-11-17T09:59:30+09:00)
 4. 서버 .env에 PARSER_API_KEY가 있으면 X-API-Key 헤더 필수 (없으면 401)
 5. 네트워크 오류·5xx는 재시도, 4xx는 데이터 문제이므로 재시도하지 말고 로그 확인
@@ -56,15 +56,15 @@ def send_card_event(base_url: str, event: dict, api_key: str = None, retries: in
     raise RuntimeError(f"{retries}회 시도 후 실패: {last_error}")
 
 
-def build_event(parsed: dict, source: str) -> dict:
+def build_event(parsed: dict) -> dict:
     """
     파싱 결과(dict)를 서버 형식으로 변환하는 예시.
     parsed 예: {"issuer": "현대카드", "type": "승인", "amount": "1,400", "merchant": "예시마트", "approval_no": "30012345", "time": datetime}
     """
     return {
         "event_id": str(uuid.uuid4()),                     # 알림 1건당 1번 생성 → 재전송 시 같은 값
-        "source": source,                                  # "rcs" | "sms" | "push" ...
-        "message_format": parsed.get("format"),
+        "source": "app_push",
+        "message_format": None,
         "issuer": parsed["issuer"],
         "event_type": "cancel" if parsed.get("type") == "취소" else "approval",
         "amount": str(parsed["amount"]),                   # 원문 그대로 OK ("1,400")
@@ -89,12 +89,6 @@ if __name__ == "__main__":
         "issuer": "현대카드", "type": "승인", "amount": "1,400", "merchant": "예시마트샘플점",
         "approval_no": "30012345", "time": datetime.now(KST),
     }
-    event = build_event(parsed, source="rcs")
+    event = build_event(parsed)
     print("1) 최초 전송:", send_card_event(args.url, event, args.api_key))
     print("2) 같은 event_id 재전송 (duplicate=True 기대):", send_card_event(args.url, event, args.api_key)["duplicate"])
-
-    push_event = {**event, "event_id": str(uuid.uuid4()), "source": "push"}
-    send_card_event(args.url, push_event, args.api_key)
-    with urllib.request.urlopen(args.url.rstrip("/") + "/api/card-events/unassigned") as res:
-        cards = json.loads(res.read())["unassigned_cards"]
-    print("3) 미등록 목록 (RCS+푸시가 1건으로 묶임):", [(c["merchant"], c["duplicate_event_ids"]) for c in cards[:3]])

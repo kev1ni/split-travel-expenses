@@ -16,10 +16,9 @@
    - 앱 계정이 없는 동행자도 닉네임만으로 초대할 수 있는 게스트 지원 (`TRIP_MEMBERS.user_id: NULL`)
    - 6자리 영숫자 고유 초대 코드(`share_code`)를 통한 간편 여행 방 입장 (헷갈리는 `0/O/1/I` 제외)
 
-2. **카드 결제 문자/푸시 자동 파싱 연동 (`CARD_EVENTS`)**
-   - 카드 결제 파싱 앱에서 전달되는 승인 내역(RCS/문자/앱푸시)을 실시간 수신
-   - 같은 `event_id` 재전송은 무시(멱등성), 같은 결제가 여러 채널로 오면 **하나로 묶어서** 표시
-   - 수신된 카드 결제 내역을 클릭 한 번으로 여행 지출(`EXPENSES`)로 등록
+2. **카드 앱 승인 푸시 자동 등록 (`CARD_EVENTS`)**
+   - 연결한 휴대폰이 카드사 앱의 승인 푸시를 보내면 여행 지출과 균등 분담을 자동 생성합니다.
+   - 재전송 시 같은 `event_id`를 사용하면 이미 반영한 지출을 반환합니다. [휴대폰 연결](../card-collector/README.md)
 
 3. **다양한 지출 분할 방식 & 금액 정합성 검증 (`EXPENSE_SPLITS`)**
    - **균등 분할(equal)**: `percentage_bp`(10000 = 100.00%)를 자동 배분하고 원 단위 나머지를 보정
@@ -110,7 +109,7 @@ database/
 │   ├── expenses.py            #   지출 + 분할 계산(build_splits) / 수정 / 삭제 / 조회
 │   ├── settlements.py         #   잔액 계산 / 최소 송금 정산 / 송금 완료·취소
 │   ├── exchanges.py           #   환전
-│   ├── card_events.py         #   카드 파싱 데이터 수신 / 다채널 중복 처리 / 지출 연결
+│   ├── card_events.py         #   카드 앱 푸시 수신 / UUID 재전송 / 지출 연결
 │   └── summary.py             #   대시보드 통계
 │
 ├── routes/                    # REST API (Flask Blueprint, 도메인별 1파일)
@@ -325,7 +324,7 @@ python tests/test_live_supabase.py     # 실제 Supabase DB로 13단계 검증 (
 - **분할 생략 시 여행 전체 균등 분할**
 - **`krw_amount` 자동 계산** — KRW면 `amount` 그대로, 외화면 `amount × exchange_rate` (반올림)
 - **환전 환율 자동 계산** — `exchange_rate` 생략 시 `원화 ÷ 외화`
-- **카드 이벤트 멱등성 & 다채널 중복 처리** — 같은 `event_id`는 200 + `duplicate: true`, 같은 결제(승인번호+카드사+유형)는 한 건으로 묶고 지출 연결 시 함께 연결, 뒤늦게 온 채널도 자동 연결
+- **동일 푸시 재전송** — 같은 `event_id`는 HTTP 200과 기존 지출 ID를 반환
 - **카드 이벤트로 지출 등록 시 `entry_type` 자동 `auto_card`**, 이미 연결된 이벤트는 409
 - **전체 멤버 잔액 API**, **송금 완료 취소 API**, **여행 상세 API**
 - **지출 목록 필터/페이지네이션** (`category`, `payer_member_id`, `from`, `to`, `limit`, `offset`)

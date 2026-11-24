@@ -264,35 +264,34 @@ class LiveTest:
 
         # ---------- 카드 이벤트 ----------
         def card_events():
-            ev = {"event_id": f"{p}_rcs", "source": "rcs", "issuer": f"{p}_카드", "event_type": "approval",
+            ev = {"event_id": f"{p}_push", "source": "push", "issuer": f"{p}_카드", "event_type": "approval",
                   "amount": "1,400", "merchant": f"{p}_마트", "approval_ref": f"{p}_A1",
                   "received_at": datetime.now(KST).isoformat()}
             self.created["events"] += [f"{p}_rcs", f"{p}_push", f"{p}_sms"]
             assert self.call("post", "/api/card-events", ev, 201)["duplicate"] is False
             assert self.call("post", "/api/card-events", ev, 200)["duplicate"] is True
-            self.call("post", "/api/card-events", {**ev, "event_id": f"{p}_push", "source": "push"}, 201)
+            self.call("post", "/api/card-events", {**ev, "event_id": f"{p}_rcs", "source": "rcs"}, 422)
 
             cards = self.call("get", f"/api/card-events/unassigned?trip_id={tid}&limit=100", expect=200)["unassigned_cards"]
             mine = [c for c in cards if c["event_id"] in (f"{p}_rcs", f"{p}_push")]
-            assert len(mine) == 1 and mine[0]["duplicate_event_ids"], f"다채널 묶음 실패: {mine}"
+            assert len(mine) == 1 and not mine[0]["duplicate_event_ids"]
 
             res = self.call("post", f"/api/trips/{tid}/expenses", {
                 "expense": {"payer_member_id": s["m1"], "title": "마트", "amount": 1400},
                 "card_event_id": f"{p}_push"}, 201)
-            assert sorted(res["linked_card_event_ids"]) == [f"{p}_push", f"{p}_rcs"]
+            assert res["linked_card_event_ids"] == [f"{p}_push"]
             assert res["expense"]["entry_type"] == "auto_card"
             self.call("post", f"/api/trips/{tid}/expenses", {
                 "expense": {"payer_member_id": s["m1"], "title": "마트", "amount": 1400},
-                "card_event_id": f"{p}_rcs"}, 409)
+                "card_event_id": f"{p}_push"}, 409)
 
-            late = self.call("post", "/api/card-events", {**ev, "event_id": f"{p}_sms", "source": "sms"}, 201)
-            assert late["card_event"]["expense_id"] == res["expense"]["id"], "늦게 온 채널 자동 연결 실패"
+            self.call("post", "/api/card-events", {**ev, "event_id": f"{p}_sms", "source": "sms"}, 422)
 
             self.call("delete", f"/api/trips/{tid}/expenses/{res['expense']['id']}", expect=200)
             cards = self.call("get", f"/api/card-events/unassigned?trip_id={tid}&limit=100", expect=200)["unassigned_cards"]
             assert any(c["event_id"].startswith(p) for c in cards), "지출 삭제 후 카드 이벤트가 미등록으로 돌아오지 않음"
 
-        self.step("12. 카드 이벤트 수신 / 중복 / 다채널 묶음 / 지출 연결 / 삭제 시 해제", card_events)
+        self.step("12. 카드 푸시 수신 / 재전송 / 문자 거부 / 지출 연결 및 삭제", card_events)
 
         def not_found():
             self.call("get", "/api/trips/2147483000", expect=404)

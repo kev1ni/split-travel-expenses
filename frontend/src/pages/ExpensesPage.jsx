@@ -16,6 +16,8 @@ import { LoadingSpinner } from '../components/common/LoadingSpinner';
 import { ExpenseList } from '../components/expenses/ExpenseList';
 import { tripService } from '../services/tripService';
 import { expenseService } from '../services/expenseService';
+import { useLiveTripData } from '../hooks/useLiveTripData';
+import { countsTowardsExpenseTotal } from '../utils/currencyMath';
 import { formatKrw } from '../utils/formatters';
 import { pickDefaultFeaturedTrip } from '../utils/tripHelpers';
 
@@ -27,8 +29,6 @@ export function ExpensesPage() {
   const [trips, setTrips] = useState(null);
   const [tripListError, setTripListError] = useState('');
   const [tripListAttempt, setTripListAttempt] = useState(0);
-  const [expenseResult, setExpenseResult] = useState(null);
-  const [expenseAttempt, setExpenseAttempt] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -45,34 +45,21 @@ export function ExpensesPage() {
   );
   const selectedTripId = selectedTrip?.id;
 
-  useEffect(() => {
-    if (!selectedTripId) return;
-    let active = true;
-    expenseService.getTripExpenses(selectedTripId).then(
-      ({expenses}) => { if (active) setExpenseResult({tripId: selectedTripId, expenses}); },
-      (err) => {
-        if (active) setExpenseResult({tripId: selectedTripId, error: err.message || '지출 내역을 불러오지 못했어요.'});
-      },
-    );
-    return () => { active = false; };
-  }, [selectedTripId, expenseAttempt]);
-
-  const currentResult = expenseResult?.tripId === selectedTripId ? expenseResult : null;
-  const expenses = currentResult?.expenses;
-  const error = tripListError || currentResult?.error;
+  const { data, error: expenseError, refresh } = useLiveTripData(selectedTripId, expenseService.getTripExpenses);
+  const expenses = data?.expenses;
+  const error = tripListError || expenseError;
 
   function retry() {
     if (tripListError) {
       setTripListError('');
       setTripListAttempt(attempt => attempt + 1);
     } else {
-      setExpenseResult(null);
-      setExpenseAttempt(attempt => attempt + 1);
+      refresh();
     }
   }
 
   const totals = useMemo(() => {
-    const active = (expenses || []).filter((e) => e.eventType !== 'CANCELLED');
+    const active = (expenses || []).filter(countsTowardsExpenseTotal);
     const all = active.reduce((sum, e) => sum + Number(e.amountKrw ?? e.amount ?? 0), 0);
     const cash = active
       .filter((e) => e.paymentMethod === 'CASH')
@@ -142,7 +129,7 @@ export function ExpensesPage() {
 
         {!trips && !tripListError ? (
           <LoadingSpinner label="여행 정보를 불러오고 있어요..." />
-        ) : error ? (
+        ) : error && !expenses ? (
           <Card className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2.5 text-danger text-sm font-semibold">
               <AlertCircle className="w-5 h-5 shrink-0" />
@@ -157,17 +144,18 @@ export function ExpensesPage() {
           <EmptyState
             icon={Plane}
             title="지출을 관리할 여행이 없어요"
-            description="먼저 여행을 생성하면 현금 지출 입력과 카드 결제 파싱 기능을 사용할 수 있어요."
+            description="여행을 만들면 현금 지출을 입력하고 카드 앱의 결제 알림을 자동 수집할 수 있어요."
             action={
               <Link to="/trips/new">
                 <Button variant="primary">새 여행 만들기</Button>
               </Link>
             }
           />
-        ) : !currentResult ? (
+        ) : !expenses ? (
           <LoadingSpinner label="지출 내역을 불러오고 있어요..." />
         ) : (
           <div className="space-y-5">
+            {error && <p role="alert" className="text-sm text-danger">{error}</p>}
             {/* 슬림한 지출 합계 바 */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Card padding="p-4 sm:p-5">

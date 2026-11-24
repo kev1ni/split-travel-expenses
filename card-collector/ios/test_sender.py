@@ -1,17 +1,17 @@
-"""Exercise the signed sender with Windows ICU and modeled native file/HTTP actions."""
+"""Exercise the generated push sender with Windows ICU and modeled native file/HTTP actions."""
 
 import hashlib
 import json
+import plistlib
 import re
 import sys
 import unittest
 from uuid import UUID
 
-from build_sender import IOS, NAME, make_workflow
+from build_sender import IOS, SOURCE, make_workflow
 
 sys.path.insert(0, str(IOS.parent / "tests"))
-from ios_shortcut_cases import IcuRegex, SAMPLE
-from verify_ios_archive import load_signed_workflow
+from ios_shortcut_cases import IcuRegex
 
 
 def icu_find(pattern, value):
@@ -23,14 +23,14 @@ def icu_find(pattern, value):
 
 
 def execute(workflow, incoming, url="https://team.example/api/collector/events", token="example-only-token-12345",
-            ack=True, manual=False, random_start=10):
+            ack=True, issuer="데모카드", random_start=10):
     store, frames, effects = {}, [], []
     enabled, last = True, None
-    answers = {0: url, 1: token}
+    answers = {0: url, 1: token, 2: issuer}
 
     def variable(value):
         if value.get("Type") == "ExtensionInput":
-            return None if manual else incoming
+            return incoming
         return store[value["OutputUUID"]]
 
     def resolve(value):
@@ -120,43 +120,71 @@ def execute(workflow, incoming, url="https://team.example/api/collector/events",
 
 
 class TestSender(unittest.TestCase):
+    push = "해외승인 JPY 3,200 가맹점: SORA MART 승인번호: 00123456"
+
     @classmethod
     def setUpClass(cls):
-        cls.workflow = load_signed_workflow(IOS / "배포용" / (NAME + ".shortcut"))
+        cls.workflow = plistlib.loads(SOURCE.read_bytes())
 
-    def test_signed_workflow(self):
-        expected = make_workflow()
-        for key in ("WFWorkflowActions", "WFWorkflowImportQuestions", "WFWorkflowTypes", "WFWorkflowInputContentItemClasses"):
-            self.assertEqual(self.workflow[key], expected[key])
+    def test_build_reproducible(self):
+        self.assertEqual(SOURCE.read_bytes(), plistlib.dumps(make_workflow(), fmt=plistlib.FMT_BINARY, sort_keys=False))
+        self.assertEqual(self.workflow["WFWorkflowTypes"], [])
 
-    def test_receive_and_retry(self):
-        for text in (SAMPLE, SAMPLE.replace("\n", " "), SAMPLE.replace("마트", "마트\t")):
-            first = execute(self.workflow, text)
-            self.assertEqual([e[0] for e in first], ["save", "post", "notify"])
-            _, filename, saved = first[0]
-            data = json.loads(first[1][3])
-            self.assertEqual(UUID(data["event_id"]).version, 4)
-            self.assertEqual(filename, f"NTrip-{data['event_id']}.txt")
-            self.assertEqual(data["amount"], "1400")
-            self.assertEqual(data["merchant"], "예시마트 샘플점" if "\t" in text else "예시마트샘플점")
-            self.assertIsNone(data["occurred_at"])
-            self.assertEqual(first[1][2], {"Authorization": "Bearer example-only-token-12345", "Content-Type": "application/json"})
-            for private in ("김*별", "누적", "example-only-token", "https://"):
-                self.assertNotIn(private, saved)
-            for manual in (True, False):
-                retried = execute(self.workflow, saved, manual=manual)
-                self.assertEqual(retried, first[1:])
-            self.assertNotEqual(json.loads(execute(self.workflow, text, random_start=20)[1][3])["event_id"], data["event_id"])
-            for kwargs in ({"token": "new-different-member-token"}, {"url": "https://another.example/api/collector/events"}):
-                self.assertFalse(execute(self.workflow, saved, **kwargs))
-            self.assertNotIn(("notify", "여행의 카드 알림에 저장했어요."), execute(self.workflow, saved, ack=False))
+    def test_approval_receipt(self):
+        effects = execute(self.workflow, self.push)
+        self.assertEqual([e[0] for e in effects], ["save", "post", "notify"])
+        _, filename, saved = effects[0]
+        _, url, headers, body = effects[1]
+        data = json.loads(body)
+        self.assertEqual(UUID(data.pop("event_id")).version, 4)
+        self.assertEqual(filename, "NTrip-" + json.loads(body)["event_id"] + ".txt")
+        self.assertEqual(data, {"source": "app_push", "message_format": None, "issuer": "데모카드",
+                                "event_type": "approval", "amount": "3200", "currency": "JPY",
+                                "merchant": "SORA MART", "approval_ref": "00123456", "occurred_at": None,
+                                "received_at": "2026-03-12T08:25:01+09:00"})
+        self.assertEqual(headers, {"Authorization": "Bearer example-only-token-12345", "Content-Type": "application/json"})
+        self.assertEqual(url, "https://team.example/api/collector/events")
+        self.assertNotIn("example-only-token", saved)
+        self.assertNotIn(self.push, saved)
+        self.assertNotEqual(execute(self.workflow, self.push, random_start=100)[1][3], body)
 
-    def test_rejections(self):
-        for text in (SAMPLE.replace("승인", "승인거절"), "인증번호 123456", SAMPLE + "\n" + SAMPLE):
-            self.assertEqual(execute(self.workflow, text), [])
+    def test_replay_uses_original_uuid_and_account(self):
+        saved, post, notify = execute(self.workflow, self.push)
+        self.assertEqual(execute(self.workflow, saved[2]), [post, notify])
+        for kwargs in ({"token": "new-different-member-token"}, {"url": "https://second.example/api/collector/events"},
+                       {"issuer": "다른카드"}):
+            self.assertEqual(execute(self.workflow, saved[2], **kwargs), [])
+        self.assertNotIn(notify, execute(self.workflow, saved[2], ack=False))
+
+    def test_currencies_optional_ref_and_cancellation(self):
+        for message, kind, amount, currency, merchant in (
+            ("승인 KRW 1,400\n가맹점: 시연 편의점", "approval", "1400", "KRW", "시연 편의점"),
+            ("국내승인\n결제금액: 1,400원\n가맹점: 시연 편의점", "approval", "1400", "KRW", "시연 편의점"),
+            ("승인\n결제금액: USD 12.50\n가맹점: Corner Market", "approval", "12.50", "USD", "Corner Market"),
+            ("국내취소 KRW 1,400 가맹점: 시연 편의점", "cancel", "1400", "KRW", "시연 편의점"),
+            ("해외승인취소 USD 12.50 가맹점: A&B", "cancel", "12.50", "USD", "A&B"),
+            ("승인 EUR 0.09 가맹점: Cafe", "approval", "0.09", "EUR", "Cafe"),
+        ):
+            with self.subTest(message=message):
+                data = json.loads(execute(self.workflow, message)[1][3])
+                self.assertEqual((data["event_type"], data["amount"], data["currency"], data["merchant"]),
+                                 (kind, amount, currency, merchant))
+                self.assertIsNone(data["approval_ref"])
+
+    def test_unsupported_content_is_ignored(self):
+        for text in (None, "", "[Web발신]\n현대 넥슨 승인\n김*별\n1,400원 일시불\n예시마트",
+                     "인증번호 123456", self.push.replace("승인 JPY", "승인거절 JPY"),
+                     self.push.replace("3,200", "3,2"), self.push.replace("3,200", "0"),
+                     self.push.replace("3,200", "0.00"), self.push.replace("3,200", "3.25"),
+                     self.push.replace("JPY", "GBP"), self.push.replace("SORA MART", '"SORA"'),
+                     self.push + "\n누적 5,200원", self.push + "\n" + self.push):
+            with self.subTest(text=text):
+                self.assertEqual(execute(self.workflow, text), [])
+
+    def test_invalid_setup_stops_before_file_and_http(self):
         for kwargs in ({"url": "http://host/api/collector/events"}, {"url": "https://user:pass@host/api/collector/events"},
-                       {"token": ""}, {"token": "invalid\nheader-injection"}):
-            self.assertEqual([e[0] for e in execute(self.workflow, SAMPLE, **kwargs)], ["notify"])
+                       {"token": "invalid\nheader-injection"}, {"issuer": '"bad"'}):
+            self.assertEqual([e[0] for e in execute(self.workflow, self.push, **kwargs)], ["notify"])
 
 
 if __name__ == "__main__":

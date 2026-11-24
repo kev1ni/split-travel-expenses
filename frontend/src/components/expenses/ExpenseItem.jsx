@@ -154,7 +154,7 @@ export function ExpenseItem({ expense }) {
             <div className="text-xs text-ink-secondary bg-surface-card px-3.5 py-2.5 rounded-[12px] border border-surface-border flex items-start gap-2">
               <MessageSquareText className="w-4 h-4 text-primary-dark shrink-0 mt-0.5" />
               <div>
-                <p className="font-semibold text-ink-main mb-0.5">원본 카드 알림 메시지</p>
+                <p className="font-semibold text-ink-main mb-0.5">원본 카드 알림</p>
                 <p className="break-words">{expense.rawCardMessage}</p>
               </div>
             </div>

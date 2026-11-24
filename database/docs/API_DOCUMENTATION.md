@@ -622,7 +622,9 @@
 
 ---
 
-## 6. 카드 파싱 앱 연동 (CARD_EVENTS)
+## 6. 기존 서버용 카드 이벤트 API (CARD_EVENTS)
+
+현재 N빵트립 수집기는 여행·결제자 토큰을 사용해 승인 푸시를 여행 지출로 바로 등록합니다. 설정과 예시는 [모바일 수집기 안내](../../card-collector/README.md)에 있습니다.
 
 ### 6-1. 파싱 데이터 수신
 - **URL**: `POST /api/card-events`
@@ -632,14 +634,14 @@
 | 필드 | 타입 | 필수 | 설명 |
 | :--- | :--- | :-: | :--- |
 | `event_id` | string | ✅ | 이벤트 고유 ID (UUID, 최대 36자). **재전송 시 같은 값 사용** |
-| `source` | string | | 수신 채널 (예: `message`, `rcs`, `push`) |
-| `message_format` | string | | 메시지 형식 |
+| `source` | string | ✅ | 카드 앱 푸시 (`app_push` 또는 기존 연동의 `push`) |
+| `message_format` | null | | 생략 또는 null |
 | `issuer` | string | | 카드사 (예: `현대카드`) |
 | `event_type` | string | | 예: `approval`(승인), `cancel`(취소) |
 | `amount` | string | | 원문 그대로 저장 (예: `"1,400"`) |
 | `currency` | string | | 기본 `KRW` |
 | `merchant` | string | | 가맹점 |
-| `approval_ref` | string | | **승인번호** — 다채널 중복 판별에 사용 |
+| `approval_ref` | string | | 원승인과 취소를 연결할 때 사용하는 승인번호 |
 | `occurred_at` | datetime | | 결제 시각 |
 | `received_at` | datetime | | 수신 시각 (🆕 생략 시 현재 시각) |
 | `trip_id` | int | | 알고 있으면 지정 |
@@ -648,7 +650,7 @@
 ```json
 {
   "event_id": "b46e3781-e03f-4714-9061-1ab0afae51ae",
-  "source": "rcs",
+  "source": "app_push",
   "issuer": "현대카드",
   "event_type": "approval",
   "amount": "1400",
@@ -662,11 +664,10 @@
 - **Response**
   - **201 Created**: 새로 저장됨 → `{ "status": "success", "card_event": {...}, "duplicate": false }`
   - 🆕 **200 OK**: 같은 `event_id`가 이미 있음 (저장 안 함, 기존 데이터 반환) → `{ "status": "success", "card_event": {...}, "duplicate": true }`
-- 🆕 **다채널 자동 연결**: 같은 `approval_ref` + `issuer` + `event_type`의 이벤트가 이미 지출로 등록돼 있으면, 새 이벤트도 자동으로 같은 지출(`expense_id`)에 연결되어 저장됩니다.
 - **오류**: 400 (`event_id` 누락, 통화/시각 형식), 401 (API 키 불일치), 404 (없는 `trip_id`)
 - **재시도 규칙**: 네트워크 오류·5xx는 같은 `event_id`로 재시도하면 안전합니다. 4xx는 데이터 문제이므로 재시도하지 마세요.
 
-### 6-2. 미등록 카드 내역 조회 (프론트 원클릭 불러오기용)
+### 6-2. 미등록 카드 내역 조회 (기존 서버 연동용)
 - **URL**: `GET /api/card-events/unassigned`
 - 🆕 **Query (모두 선택)**:
 
@@ -676,14 +677,14 @@
 | `payer_member_id` | 해당 결제자 이벤트만 |
 | `limit` | 1~100 (기본 20) |
 
-- **Response (200 OK)**: 최근 수신 순. 🆕 같은 결제가 여러 채널로 들어오면 **한 건만** 보여주고 나머지 ID는 `duplicate_event_ids`에 담습니다.
+- **Response (200 OK)**: 최근 수신 순으로 미등록 이벤트를 반환합니다.
 ```json
 {
   "status": "success",
   "unassigned_cards": [
     {
       "event_id": "b46e3781-e03f-4714-9061-1ab0afae51ae",
-      "source": "rcs",
+      "source": "app_push",
       "issuer": "현대카드",
       "event_type": "approval",
       "amount": "1400",
@@ -693,12 +694,12 @@
       "received_at": "2026-11-17T01:00:00+00:00",
       "trip_id": null,
       "expense_id": null,
-      "duplicate_event_ids": ["c1d2e3f4-0000-4000-8000-000000000002"]
+      "duplicate_event_ids": []
     }
   ]
 }
 ```
-- 프론트에서 항목을 선택하면 3-1 지출 등록에 `card_event_id`로 넘겨주세요. `duplicate_event_ids`의 이벤트도 함께 연결됩니다.
+- 기존 서버 연동에서는 3-1 지출 등록 시 이벤트 ID를 전달할 수 있습니다.
 
 ---
 

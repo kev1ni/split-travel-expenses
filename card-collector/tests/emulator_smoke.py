@@ -1,4 +1,4 @@
-"""Exercise Android's SMS and notification routes on a disposable, initially clean AVD."""
+"""Verify selected-app push collection and SMS exclusion on a disposable, clean AVD."""
 
 import argparse
 import base64
@@ -23,6 +23,7 @@ def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--device", required=True, help="Disposable emulator, such as emulator-5554")
     cli.add_argument("--adb", default="adb")
+    cli.add_argument("--apk", type=Path, default=APK, help="Debuggable collector APK to install")
     args = cli.parse_args()
     if not re.fullmatch(r"emulator-[0-9]+", args.device):
         cli.error("Use a disposable Android emulator")
@@ -38,7 +39,10 @@ def main():
         cli.error("Start the test emulator and wait for Android to finish booting")
     if shell("pm", "list", "packages", PACKAGE).strip():
         cli.error("Use a clean emulator without a previous collector installation")
-    adb("install", "-g", str(APK))
+    adb("install", str(args.apk))
+    package_info = shell("dumpsys", "package", PACKAGE)
+    assert all(permission not in package_info for permission in
+               ("android.permission.RECEIVE_SMS", "android.permission.READ_SMS")), "Unexpected SMS permission"
     # Test-only fixture for the debuggable APK. A blank endpoint enforces device-only capture.
     prefs = ('<map><boolean name="enabled" value="true"/>'
              '<string name="issuer">Demo</string><string name="sms_senders">15881234</string>'
@@ -56,14 +60,24 @@ def main():
             raise RuntimeError("Emulator console rejected the SMS fixture")
 
     try:
-        sms("15889999", MESSAGE)
-        sms("15881234", "OTP approved JPY 7777")
-        sms("15881234", MESSAGE)
+        # Even a sender previously allowed on v0.3 must not create an event.
+        sms_ref = str(time.time_ns())[-8:]
+        sms("15881234", f"approved JPY 7777 merchant: SORA MART approval ref: {sms_ref}")
         shell("cmd", "notification", "post", "-t", "Demo", "travel-fixture", MESSAGE)
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            inbox = shell("content", "query", "--uri", "content://sms/inbox", "--projection", "_id",
+                          "--where", f"address='15881234' AND body LIKE '%{sms_ref}%'")
+            if "Row: " in inbox:
+                break
+            time.sleep(2)
+        else:
+            raise RuntimeError("Test SMS did not reach the emulator's messaging inbox")
         with tempfile.TemporaryDirectory() as folder:
             snapshot = Path(folder) / "events.db"
             deadline = time.monotonic() + 40
             rows = []
+            first_event_at = None
             while time.monotonic() < deadline:
                 time.sleep(2)
                 for suffix in ("", "-wal"):
@@ -79,16 +93,19 @@ def main():
                 if snapshot.exists():
                     with closing(sqlite3.connect(snapshot)) as conn:
                         rows = conn.execute("SELECT payload, state FROM events ORDER BY rowid").fetchall()
-                    if len(rows) >= 2:
+                    if rows and first_event_at is None:
+                        first_event_at = time.monotonic()
+                    # Give asynchronous SMS delivery time to reveal an unexpected second event.
+                    if first_event_at is not None and time.monotonic() - first_event_at >= 5:
                         break
         events = [json.loads(payload) for payload, state in rows if state == "local"]
-        assert len(rows) == len(events) == 2, [(e["source"], e["amount"]) for e in events]
-        assert {(e["source"], e["message_format"]) for e in events} == {("message", "sms"), ("app_push", None)}
-        assert len({e["event_id"] for e in events}) == 2
-        assert all(e["currency"] == "JPY" and e["amount"] == "3200" and
-                   e["approval_ref"] == "00123456" and e["event_type"] == "approval" for e in events)
+        assert len(rows) == len(events) == 1, [(e["source"], e["amount"]) for e in events]
+        event = events[0]
+        assert event["source"] == "app_push" and event["message_format"] is None and event["event_id"]
+        assert event["currency"] == "JPY" and event["amount"] == "3200"
+        assert event["approval_ref"] == "00123456" and event["event_type"] == "approval"
         print(json.dumps(events, indent=2))
-        print("PASS: independent SMS and push events; other sender and OTP ignored.")
+        print("PASS: captured selected app push once and ignored SMS from the formerly allowed sender.")
     finally:
         shell("cmd", "notification", "disallow_listener", PACKAGE + "/.CardNotificationListener")
 

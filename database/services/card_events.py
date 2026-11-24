@@ -14,10 +14,24 @@ CARD_EVENT_FIELDS = {
     "amount", "currency", "merchant", "approval_ref", "occurred_at", "received_at",
 }
 
+DISCARDED_SOURCES = ("deleted:message", "deleted:app_push")
+PUSH_SOURCES = ("app_push", "push")
+
+
+def was_skipped(event):
+    return bool(event.get("auto_registration_skipped")) or event.get("source") in DISCARDED_SOURCES
+
+
+def public_event(event):
+    if event.get("source") in DISCARDED_SOURCES:
+        return {**event, "source": event["source"].split(":", 1)[1], "auto_registration_skipped": True}
+    return event
+
 
 def _payment_fields(event):
     """같은 여행·결제자 안에서 승인번호와 결제 내용이 모두 같은 알림만 연결한다."""
-    if not event.get("approval_ref") or not event.get("issuer"):
+    if (not event.get("source") or event["source"] in PUSH_SOURCES
+            or not event.get("approval_ref") or not event.get("issuer")):
         return {}
     fields = {key: event.get(key) for key in ("approval_ref", "issuer", "event_type", "amount", "currency")}
     if event.get("event_type") in ("cancel", "cancellation", "partial_cancellation"):
@@ -42,7 +56,8 @@ def _linked_sibling(client, event):
     fields = _payment_fields(event)
     if not fields:
         return None
-    q = client.table(TABLE_CARD_EVENTS).select("trip_id,payer_member_id,expense_id").not_.is_("expense_id", "null")
+    q = (client.table(TABLE_CARD_EVENTS).select("trip_id,payer_member_id,expense_id")
+         .not_.is_("expense_id", "null").not_.in_("source", PUSH_SOURCES))
     if event.get("trip_id") is not None or settings.collector_signing_key:
         fields.update(_scope(event))
     rows = _match(q, fields).execute().data or []
@@ -56,7 +71,7 @@ def _retry_response(existing, payload, scoped):
             raise ConflictError("이미 사용 중인 event_id입니다.")
         for key in ("source", "message_format", "issuer", "event_type", "amount", "currency", "merchant",
                     "approval_ref", "received_at", "occurred_at"):
-            before, after = existing.get(key), payload.get(key)
+            before, after = public_event(existing).get(key), payload.get(key)
             if key.endswith("_at") and before and after:
                 before = datetime.fromisoformat(before.replace("Z", "+00:00"))
                 after = datetime.fromisoformat(after.replace("Z", "+00:00"))
@@ -82,7 +97,7 @@ def insert_card_event(event_data, *, scoped=False):
     existing = find_existing()
     if existing:
         saved, created = _retry_response(existing, payload, scoped)
-        return attach_late_event(client, saved), created
+        return (saved if scoped else attach_late_event(client, saved)), created
     payload["currency"] = currency(payload.get("currency"), default="KRW")
     for key in ("occurred_at", "received_at"):
         payload[key] = to_datetime(payload.get(key), key)
@@ -101,11 +116,11 @@ def insert_card_event(event_data, *, scoped=False):
             raise
 
     saved, created = db_call("카드 이벤트 저장", insert)
-    return attach_late_event(client, saved), created
+    return (saved if scoped else attach_late_event(client, saved)), created
 
 
 def attach_late_event(client, event):
-    if event.get("expense_id") is not None:
+    if event.get("expense_id") is not None or was_skipped(event):
         return event
     sibling = _linked_sibling(client, event)
     if not sibling:
@@ -125,6 +140,8 @@ def list_unassigned(limit=20, trip_id=None, payer_member_id=None, scoped=False):
     rows = q.order("received_at", desc=True).limit(limit * 3).execute().data or []
     result, groups = [], {}
     for ev in rows:
+        if was_skipped(ev):
+            continue
         fields = _payment_fields(ev)
         key = tuple({**_scope(ev), **fields}.items()) if fields else None
         if key and key in groups:
@@ -143,17 +160,19 @@ def check_linkable(client, card_event_id, trip_id, payer_id):
         raise NotFoundError("이 여행에서 카드 이벤트를 찾을 수 없습니다.")
     if ev.get("payer_member_id") not in (None, payer_id):
         raise ConflictError("이 카드 이벤트의 결제자를 확인해주세요.")
-    if ev.get("expense_id") or _linked_sibling(client, ev):
+    if ev.get("expense_id") or was_skipped(ev) or _linked_sibling(client, ev):
         raise ConflictError("이미 지출로 등록된 카드 이벤트입니다.")
     return ev
 
 
 def link_card_event(client, event, expense):
-    # PostgreSQL rechecks the null condition after a concurrent UPDATE releases its locks.
-    # A competing confirmation with no claimed row rolls its expense and splits back.
     patch = {"trip_id": expense["trip_id"], "payer_member_id": expense["payer_member_id"], "expense_id": expense["id"]}
-    fields = _payment_fields(event) or {"event_id": event["event_id"]}
+    fields = _payment_fields(event)
     q = client.table(TABLE_CARD_EVENTS).update(patch).is_("expense_id", "null")
+    if fields:
+        q = q.not_.in_("source", PUSH_SOURCES)
+    else:
+        fields = {"event_id": event["event_id"]}
     claimed = _match(q, {**_scope(event), **fields}).execute().data or []
     ids = sorted(r["event_id"] for r in claimed)
     if event["event_id"] not in ids:

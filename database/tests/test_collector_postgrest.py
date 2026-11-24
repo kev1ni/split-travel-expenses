@@ -1,4 +1,4 @@
-"""Integration checks against a disposable PostgREST database with migrations 002–004.
+"""Integration checks against a disposable PostgREST database with the backend migrations.
 
 The fixture creates its own accounts and trip. Run via check_postgrest(app, client);
 pytest does not connect to a database by default.
@@ -29,7 +29,7 @@ def check_postgrest(app, db):
     auth = {"Authorization":"Bearer " + call("POST","collector/pair",{**login,"trip_id":tid,"payer_member_id":payer})["token"]}
     reviews = f"v1/trips/{tid}/card-events"
     event = {"event_id":str(uuid4()),"event_type":"approval","amount":"1400","currency":"KRW",
-             "source":"message","issuer":"QA카드","merchant":"상점","approval_ref":"승인-0123","received_at":"2026-11-21T08:00:00+09:00"}
+             "source":"app_push","issuer":"QA카드","merchant":"상점","approval_ref":"승인-0123","received_at":"2026-11-21T08:00:00+09:00"}
 
     def race(method, path, requests, headers):
         ready = Barrier(len(requests))
@@ -41,18 +41,20 @@ def check_postgrest(app, db):
         with ThreadPoolExecutor(max_workers=len(requests)) as workers:
             return list(workers.map(send, requests))
 
-    responses = race("POST",receive,[event]*4,auth)
-    assert sorted(s for s,_ in responses) == [200,200,200,201], responses
-    twin = {**event,"event_id":str(uuid4()),"source":"app_push"}
-    call("POST",receive,twin,201,auth)
-    req = {"card_event_id":event["event_id"],"payer_member_id":payer}
-    bodies = [req,{**req,"card_event_id":twin["event_id"]}]*2
-    confirmations = race("POST",reviews,bodies,session_auth)
-    assert sorted(s for s,_ in confirmations) == [201,409,409,409],confirmations
-    original = next(j["data"]["expense_id"] for s,j in confirmations if s == 201)
+    rejected = {**event, "event_id":str(uuid4()), "source":"message"}
+    call("POST", receive, rejected, 422, auth)
+    assert not db.table("card_events").select("event_id").eq("event_id", rejected["event_id"]).execute().data
+    responses = race("POST", receive, [event] * 4, auth)
+    assert sorted(status for status, _ in responses) == [200, 200, 200, 201], responses
+    expense_ids = {body["card_event"]["expense_id"] for _, body in responses}
+    assert len(expense_ids) == 1 and None not in expense_ids, responses
+    original = expense_ids.pop()
     rows = db.table("expenses").select("*").eq("trip_id",tid).execute().data
     assert len(rows) == 1 and rows[0]["id"] == original
-    late = call("POST",receive,{**event,"event_id":str(uuid4())},201,auth)["card_event"]
+    assert rows[0]["krw_amount"] == 1400 and rows[0]["payer_member_id"] == payer
+    split_rows = db.table("expense_splits").select("*").eq("expense_id", original).execute().data
+    assert {r["member_id"]: r["split_krw_amount"] for r in split_rows} == {payer: 700, guest: 700}
+    late = call("POST",receive,event,200,auth)["card_event"]
     assert late["expense_id"] == original
 
     # Two competing 800-won refunds can never credit 1,600 against a 1,400-won bill.
@@ -77,4 +79,6 @@ def check_postgrest(app, db):
     expenses=db.table("expenses").select("id").eq("trip_id",tid).execute().data
     splits=db.table("expense_splits").select("member_id,split_krw_amount").in_("expense_id",[e["id"] for e in expenses]).execute().data
     assert len(expenses)==3 and all(sum(s["split_krw_amount"] for s in splits if s["member_id"]==m)==0 for m in (payer,guest))
-    print("PASS PostgreSQL/PostgREST: parallel ingestion, parallel sibling confirmations, zero orphan expenses, refunds, concurrent settlements")
+    second = call("POST", receive, {**event, "event_id":str(uuid4())}, 201, auth)["card_event"]
+    assert second["expense_id"] and second["expense_id"] != original
+    print("PASS PostgreSQL/PostgREST: SMS rejected, one expense per push UUID, equal splits, refunds, concurrent settlements")

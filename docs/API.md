@@ -298,80 +298,19 @@
 
 ---
 
-## 5. 카드 결제 메시지 파싱 (CARD_EVENTS)
+## 5. 카드 앱 푸시 수집 (CARD_EVENTS)
 
-> 카드 알림 파싱 엔진은 다른 담당 파트에서 구현 예정. 프론트엔드는 **메시지 입력 → 파싱 미리보기 → 사용자 수정/확인 → 지출 등록** 흐름을 지원합니다. 자동 푸시 수집은 이 초안의 필수 범위에 포함하지 않습니다.
-
-| Method | Endpoint | 기능 |
+| Method | 전체 경로 | 기능 |
 |---|---|---|
-| POST | `/card-events/parse` | 카드 알림 메시지 파싱 (미리보기) |
-| POST | `/trips/{trip_id}/card-events` | 검토·확정된 카드 이벤트 등록 |
-| GET | `/trips/{trip_id}/card-events` | 카드 이벤트 목록 |
+| POST | `/api/collector/pair` | 연결할 여행과 결제자 전용 토큰 발급 |
+| POST | `/api/collector/events` | 연결된 앱의 결제 푸시를 받아 지출과 분담 자동 등록 |
+| GET | `/api/v1/trips/{trip_id}/card-events?source=app_push` | 해당 여행에 도착한 카드 앱 푸시 내역 |
+| POST | `/api/v1/trips/{trip_id}/card-events/sync` | 미반영 푸시 재시도 |
+| POST | `/api/v1/trips/{trip_id}/card-events` | 자동으로 식별하지 못한 취소의 원거래 연결 |
 
-### `POST /card-events/parse`
+휴대폰은 푸시 하나에 UUID를 하나 부여하고, 같은 푸시를 재전송할 때는 해당 UUID를 유지한다. 새 수신은 HTTP 201, 재전송은 HTTP 200이다. 등록 성공 응답의 `card_event.expense_id`는 생성한 여행 지출을 가리킨다. 문자 출처는 HTTP 422로 거절한다. [휴대폰 설정과 요청 JSON](../card-collector/README.md)
 
-요청:
-```json
-{
-  "message": "[카드] 해외승인 JPY 5,000 TOKYO SHOP 12/10 15:30"
-}
-```
-응답 (파싱 결과는 추정치):
-```json
-{
-  "data": {
-    "issuer": null,
-    "event_type": "approval",
-    "merchant": "TOKYO SHOP",
-    "amount": 5000,
-    "currency": "JPY",
-    "occurred_at": null,
-    "approval_ref": null,
-    "confidence": null,
-    "warnings": ["결제 연도 및 시간대를 확인해 주세요."]
-  }
-}
-```
-
-### `POST /trips/{trip_id}/card-events`
-
-요청 (사용자가 미리보기 수정 후 확정):
-```json
-{
-  "message": "[카드] 해외승인 JPY 5,000 TOKYO SHOP 12/10 15:30",
-  "issuer": "example-card",
-  "event_type": "approval",
-  "approval_ref": "REF123",
-  "merchant": "TOKYO SHOP",
-  "amount": 5000,
-  "currency": "JPY",
-  "payer_member_id": 31,
-  "exchange_rate": 9.2,
-  "rate_date": "2026-12-10",
-  "split_type": "equal",
-  "splits": [{ "member_id": 31 }, { "member_id": 32 }]
-}
-```
-응답 `201 Created`:
-```json
-{
-  "data": {
-    "card_event_id": 501,
-    "expense_id": 102,
-    "status": "registered",
-    "krw_amount": 46000
-  }
-}
-```
-
-**중복·취소 처리 협의 사항**
-
-- `approval_ref`, 카드사, 금액, 일시 등을 이용한 중복 판별 정책 필요. 단순 동일 메시지만으로 판단하지 않기.
-- 중복 이벤트 등록 시 `409 DUPLICATE_CARD_EVENT` 등의 명시적 응답 권장.
-- `event_type`: `approval` / `cancellation` / `partial_cancellation` 제안.
-- 취소·부분 취소 이벤트는 원 승인과 `original_expense_id` 등으로 연결.
-- 실제 카드 청구 원화 금액이 제공된다면 임의 환산보다 우선 적용할지 정책 결정.
-- 파싱 실패 시 빈 값·경고를 반환하고 사용자가 수동 수정할 수 있도록 함.
+카드 승인은 연결된 멤버가 결제하고 등록 시점의 여행 멤버 전원이 균등 분담한다. 구분 가능한 취소는 원 지출에 연결해 차감한다. 이미 등록한 지출을 확인하려면 여행 지출 목록을 조회한다.
 
 ---
 
@@ -487,7 +426,7 @@
 | `authService.js` | `/auth/*` |
 | `tripService.js` | `/trips/*`, `/invitations/accept` |
 | `expenseService.js` | `/trips/{trip_id}/expenses*`, `/trips/{trip_id}/settlements*` (별도 서비스 분리 가능) |
-| `cardEventService.js` | `/card-events/parse`, `/trips/{trip_id}/card-events` |
+| `cardEventService.js` | `/trips/{trip_id}/card-events`, `/trips/{trip_id}/card-events/sync` |
 | `exchangeRateService.js` | `/exchange-rates` |
 | `mockData.js` | 백엔드 연동 전 개발용 데이터 (실 API 아님) |
 
@@ -532,6 +471,6 @@
 2. 여행 CRUD 및 멤버/초대
 3. 지출 CRUD와 분배
 4. 환율 조회 및 원화 환산
-5. 카드 메시지 파싱·확정·중복/취소 처리
+5. 카드 앱 푸시 자동 등록과 취소 처리
 6. 정산 미리보기 및 완료 처리
 7. 프론트엔드 Mock 제거 및 통합 테스트

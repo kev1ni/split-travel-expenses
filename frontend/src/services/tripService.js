@@ -142,9 +142,9 @@ export const tripService = {
     return tripView(data);
   },
 
-  async getTripDetail(tripId) {
+  async getTripDetail(tripId, signal) {
     if (!isMockMode()) {
-      const {data} = await apiRequest(API_ENDPOINTS.trips.detail(tripId));
+      const {data} = await apiRequest(API_ENDPOINTS.trips.detail(tripId), { signal });
       return tripView(data);
     }
 

@@ -1,4 +1,4 @@
-"""Exercise the mobile → trip inbox → expense flow and signed refund amounts through Flask."""
+"""Exercise automatic mobile expenses, retries, duplicates and signed refund amounts through Flask."""
 
 import sys
 from pathlib import Path
@@ -57,66 +57,56 @@ def _exercise():
     auth = {"Authorization": "Bearer " + config["token"]}
     other_token = req(outsider, "POST", "collector/pair", {**other_creds, "trip_id": second_trip, "payer_member_id": second_payer})["token"]
     from datetime import datetime, timezone
-    event = {"event_id": str(uuid4()), "source": "message", "issuer": "데모카드", "message_format": None,
+    event = {"event_id": str(uuid4()), "source": "app_push", "issuer": "데모카드", "message_format": None,
              "amount": "1400", "currency": "KRW", "merchant": "예시마트", "approval_ref": "A1023",
              "occurred_at": None, "received_at": datetime.now(timezone.utc).isoformat(), "event_type": "approval"}
     url = "collector/events"
     req(device, "POST", url, event, 401)
     req(device, "POST", url, {**event, "trip_id": second_trip}, 400, auth)
     req(device, "POST", url, {**event, "amount": "-1"}, 400, auth)
-    assert req(device, "POST", url, event, 201, auth)["card_event"]["trip_id"] == trip
+    for fmt in (None, "rcs", "sms"):
+        req(device, "POST", url, {**event, "source": "message", "message_format": fmt}, 422, auth)
+    assert not db.tables.get("card_events")
+    accepted = req(device, "POST", url, event, 201, auth)
+    assert accepted["registration_status"] == "registered" and accepted["card_event"]["trip_id"] == trip
+    original_id = accepted["card_event"]["expense_id"]
+    assert sorted(s["split_krw_amount"] for s in db.tables["expense_splits"] if s["expense_id"] == original_id) == [700, 700]
     assert req(device, "POST", url, event, 200, auth)["duplicate"]
     req(device, "POST", url, {**event, "amount": "900"}, 409, auth)
     req(device, "POST", url, event, 409, {"Authorization": "Bearer " + other_token})
-    twin_id = str(uuid4())
-    req(device, "POST", url, {**event, "event_id": twin_id, "source": "app_push"}, 201, auth)
     same_ref = {**event, "event_id": str(uuid4())}
     req(device, "POST", url, same_ref, 201, {"Authorization": "Bearer " + other_token})
     inbox = f"card-events/unassigned?trip_id={trip}&scoped=true"
     req(device, "GET", inbox, status=401)
     req(outsider, "GET", inbox, status=403)
     rows = req(owner, "GET", inbox)["unassigned_cards"]
-    assert len(rows) == 1 and len(rows[0]["duplicate_event_ids"]) == 1
+    assert not rows
     reviews = f"v1/trips/{trip}/card-events"
     confirmation = {"card_event_id": event["event_id"], "payer_member_id": payer}
     req(owner, "POST", reviews, {**confirmation, "payer_member_id": guest}, 404)
-    confirmed = req(owner, "POST", reviews, confirmation, 201)["data"]
-    assert confirmed["krw_amount"] == 1400
-    original_id = confirmed["expense_id"]
     req(owner, "POST", reviews, confirmation, 409)
     assert not req(owner, "GET", inbox)["unassigned_cards"]
-    assert len(req(outsider, "GET", f"card-events/unassigned?trip_id={second_trip}&scoped=true")["unassigned_cards"]) == 1
-    late = req(device, "POST", url, {**event, "event_id": str(uuid4())}, 201, auth)["card_event"]
-    assert late["expense_id"] == original_id
-    parse_url = "v1/card-events/parse"
-    blank = req(owner, "POST", parse_url, {"message": "인증번호 012345"})["data"]
-    assert blank["amount"] is None and blank["warnings"]
-    ambiguous = req(owner, "POST", parse_url, {"message": "해외승인 JPY 300 A점 해외승인 JPY 400 B점"})["data"]
-    assert ambiguous["amount"] is None
-    for message, value, code, shop in [
-        ("[카드] 해외승인 JPY 5,000 TOKYO SHOP 12/10 15:30", 5000, "JPY", "TOKYO SHOP"),
-        ("[카드승인] 25,000원 / OO식당 / 11월 19일 12:30", 25000, "KRW", "OO식당"),
-        ("[Web발신]\n현대 넥슨 승인\n김*별\n1,400원 일시불\n03/12 08:25\n예시마트\n누적23,700원", 1400, "KRW", "예시마트")
-    ]:
-        parsed = req(owner, "POST", parse_url, {"message":message})["data"]
-        assert (parsed["amount"], parsed["currency"], parsed["merchant"], parsed["occurred_at"]) == (value,code,shop,None)
+    assert not req(outsider, "GET", f"card-events/unassigned?trip_id={second_trip}&scoped=true")["unassigned_cards"]
+    req(owner, "POST", "v1/card-events/parse", {"message": "결제 문자"}, 410)
     approval = {"payer_member_id": payer, "event_id": str(uuid4()), "amount": 5000, "currency":"JPY",
                 "issuer":"예시카드", "approval_ref":"ORDER2", "event_type":"approval","merchant":"TOKYO SHOP",
                 "exchange_rate":"9.2","split_type":"equal","splits":[{"member_id":payer},{"member_id":guest}]}
+    req(owner, "POST", reviews, {**approval, "message": "결제 문자"}, 422)
+    req(owner, "POST", reviews, {**approval, "source": "message"}, 422)
     assert req(owner, "POST", reviews, approval, 201)["data"]["krw_amount"] == 46000
     req(owner, "POST", reviews, {**approval, "event_id":str(uuid4())}, 409)
     count = len(db.tables["expenses"])
     req(owner, "POST", reviews, {**approval,"event_id":str(uuid4()),"approval_ref":"other","currency":"USD","exchange_rate":None}, 422)
     assert len(db.tables["expenses"]) == count
-    refund = {**event, "source":"message","event_id":str(uuid4()), "amount":"399","event_type":"cancel"}
-    req(device, "POST", url, refund, 201, auth)
+    refund = {**event, "event_id":str(uuid4()), "amount":"399","event_type":"cancel"}
+    db.fail_next.add("expense_splits")
+    req(device, "POST", url, refund, 500, auth)
+    assert len(db.tables["expenses"]) == count
+    refunded = req(device, "POST", url, refund, 200, auth)
+    refund_id = refunded["card_event"]["expense_id"]
+    assert next(e["krw_amount"] for e in db.tables["expenses"] if e["id"] == refund_id) == -399
     cancel_body = {"payer_member_id":payer,"card_event_id":refund["event_id"],"original_expense_id":original_id,
                    "event_type":"partial_cancellation"}
-    db.fail_next.add("expense_splits")
-    req(owner, "POST", reviews, cancel_body, 500)
-    assert len(db.tables["expenses"]) == count
-    credited = req(owner, "POST", reviews, cancel_body, 201)["data"]
-    assert credited["krw_amount"] == -399
     req(owner, "POST", reviews, cancel_body, 409)
     over = {"payer_member_id":payer, "original_expense_id":original_id, "event_id":str(uuid4()),
             "event_type":"cancellation","amount":1400,"currency":"KRW"}
@@ -153,7 +143,73 @@ def _exercise():
     assert req(owner,"PATCH",complete,{"status":"completed"})["data"]["completed_at"] == done["completed_at"]
     assert req(owner,"POST",settle,{},201)["data"] == []
 
+    sync = f"v1/trips/{trip}/card-events/sync"
+    req(outsider, "POST", sync, {}, 403)
+    # A cancellation may reach the server before its purchase. Collecting the purchase
+    # applies the waiting credit even when there is no browser open.
+    early = {**event, "event_id": str(uuid4()), "approval_ref": "ARRIVED-LATER", "event_type": "cancel"}
+    assert req(device, "POST", url, early, 201, auth)["registration_status"] == "pending_original"
+    purchase = {**early, "event_id": str(uuid4()), "event_type": "approval"}
+    bought = req(device, "POST", url, purchase, 201, auth)["card_event"]["expense_id"]
+    assert any(e.get("original_expense_id") == bought and e["krw_amount"] == -1400 for e in db.tables["expenses"])
+    # Prior databases cannot safely distinguish simultaneous equal-value refund receipts.
+    # Neither ingest nor an explicit original selection may claim a different push or message.
+    isolated = {**event, "event_id": str(uuid4()), "approval_ref": "REFUND-GUARD"}
+    isolated_id = req(device, "POST", url, isolated, 201, auth)["card_event"]["expense_id"]
+    coincident = {**isolated, "event_type": "cancel", "amount": "388", "occurred_at": "2026-11-17T12:00:00+09:00"}
+    twin_id = str(uuid4())
+    db.table("card_events").insert({**coincident, **pair_args, "event_id": twin_id, "source": "message"}).execute()
+    next_refund = {**coincident, "event_id": str(uuid4())}
+    assert req(device, "POST", url, next_refund, 201, auth)["registration_status"] == "pending_original"
+    req(owner, "POST", reviews, {"card_event_id": next_refund["event_id"], "payer_member_id": payer,
+            "original_expense_id": isolated_id}, 422)
+    assert not any(r.get("expense_id") for r in db.tables["card_events"]
+                   if r["event_id"] in (twin_id, next_refund["event_id"]))
+
+    # A missing quote persists the raw USD receipt and signals a retry to the phone.
+    from unittest.mock import patch
+    from core.errors import AppError
+    fx = {**event, "event_id": str(uuid4()), "approval_ref": "USD01", "merchant": "Blue Cafe",
+          "amount": "12.50", "currency": "USD", "occurred_at": "2026-11-17T01:30:00+09:00"}
+    with patch("services.reference_rates.lookup", side_effect=AppError("unavailable", 503)):
+        req(device, "POST", url, fx, 503, auth)
+        assert req(owner, "POST", sync, {})["data"]["registered_count"] == 0
+    assert any(e["event_id"] == fx["event_id"] and not e.get("expense_id") for e in db.tables["card_events"])
+    with patch("services.reference_rates.lookup", return_value={"rate": 1401.2, "rate_date": "2026-11-16"}) as get_rate:
+        assert req(owner, "POST", sync, {})["data"]["registered_count"] == 1
+        get_rate.assert_called_once_with("USD", "KRW", "2026-11-17")
+    fx_id = req(device, "POST", url, fx, 200, auth)["card_event"]["expense_id"]
+    expense = next(e for e in db.tables["expenses"] if e["id"] == fx_id)
+    assert expense["krw_amount"] == 17515 and expense["rate_date"] == "2026-11-16"
+    assert sorted(s["split_krw_amount"] for s in db.tables["expense_splits"] if s["expense_id"] == fx_id) == [8757, 8758]
+    req(owner, "DELETE", f"{cash_url}/{fx_id}", status=409)
+    # Exercise the older management endpoint/service, which allows explicit removal of card purchases.
+    from services import expenses
+    expenses.delete_expense(trip, fx_id)
+    req(owner, "POST", sync, {})
+    assert req(device, "POST", url, fx, 200, auth)["registration_status"] == "skipped"
+    assert not any(e["title"] == "Blue Cafe" for e in db.tables["expenses"])
+    # The collector now accepts only app pushes. Two different notification UUIDs are
+    # independent even when a card issuer reuses its approval reference and amount.
+    new_push = req(device, "POST", url, {**event, "event_id": str(uuid4())}, 201, auth)["card_event"]
+    assert new_push["expense_id"] != original_id
+    db.table("card_events").insert({**event, **pair_args, "event_id": "0001-incomplete", "amount": "?"}).execute()
+    db.table("card_events").insert({**event, **pair_args, "event_id": "0002-no-payer", "payer_member_id": None}).execute()
+    db.table("card_events").insert({**event, **pair_args, "event_id": "0003-old-message", "source": "message"}).execute()
+    db.table("card_events").insert({**event, **pair_args, "event_id": "0004-old-push", "received_at": None,
+                                    "created_at": event["received_at"]}).execute()
+    assert req(owner, "POST", sync, {})["data"]["registered_count"] == 1
+    archive = req(owner, "GET", reviews)["data"]
+    assert {row["event_id"] for row in archive if not row.get("expense_id")} >= {
+        "0001-incomplete", "0002-no-payer", "0003-old-message"}
+    assert next(row for row in archive if row["event_id"] == "0004-old-push")["expense_id"]
+    assert all(r["source"] == "app_push" for r in req(owner, "GET", reviews + "?source=app_push")["data"])
+    revision = f"v1/trips/{trip}/expense-revision"
+    req(outsider, "GET", revision, status=403)
+    ids = [r["id"] for r in db.tables["expenses"] if r["trip_id"] == trip]
+    assert req(owner, "GET", revision)["data"] == {"count": len(ids), "latest_id": max(ids)}
+
 
 if __name__ == "__main__":
     test_mobile_and_reviewed_events()
-    print("PASS: scoped ingestion, duplicate/late notifications, manual parsing, refunds and splits")
+    print("PASS: signed push-only ingestion, automatic registration, retries, refunds and splits")

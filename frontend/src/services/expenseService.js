@@ -23,19 +23,24 @@ function splitPayload(payload, totalKrw) {
 }
 
 export const expenseService = {
+  async getRevision(tripId, signal) {
+    const { data } = await apiRequest(`${API_ENDPOINTS.trips.detail(tripId)}/expense-revision`, { signal });
+    return `${data.latest_id}:${data.count}`;
+  },
+
   async getRecentTripExpenses(tripId) {
     if (isMockMode()) return this.getTripExpenses(tripId);
     const result = await apiRequest(`${API_ENDPOINTS.trips.expenses(tripId)}?page=1&page_size=3`);
     return {expenses: result.data.map(expenseView)};
   },
 
-  async getTripExpenses(tripId) {
+  async getTripExpenses(tripId, signal) {
     if (!isMockMode()) {
       const expenses = [];
       let page = 1;
       let total;
       do {
-        const result = await apiRequest(`${API_ENDPOINTS.trips.expenses(tripId)}?page=${page++}&page_size=100`);
+        const result = await apiRequest(`${API_ENDPOINTS.trips.expenses(tripId)}?page=${page++}&page_size=100`, { signal });
         expenses.push(...result.data.map(expenseView));
         total = result.pagination?.total ?? expenses.length;
         if (!result.data.length) break;
@@ -56,7 +61,7 @@ export const expenseService = {
   },
 
   /**
-   * 지출 등록 (현금 직접 입력 및 카드 파싱 확인 후 등록 공통 사용)
+   * 사용자가 입력한 지출을 등록한다.
    * 외화 지출의 경우 결제 통화, 적용 환율, 원화 환산/청구 금액 정보를 함께 전달합니다.
    * 실제 저장 및 분담 금액 최종 검증은 백엔드에서 수행합니다.
    */

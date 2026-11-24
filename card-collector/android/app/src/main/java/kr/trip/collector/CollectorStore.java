@@ -17,6 +17,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -28,7 +30,7 @@ final class CollectorStore extends SQLiteOpenHelper {
     private static CollectorStore instance;
 
     private CollectorStore(Context context) {
-        super(context.getApplicationContext(), "card-outbox.db", null, 1);
+        super(context.getApplicationContext(), "card-outbox.db", null, 2);
     }
 
     private static synchronized CollectorStore db(Context context) {
@@ -43,16 +45,31 @@ final class CollectorStore extends SQLiteOpenHelper {
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        throw new IllegalStateException("Unsupported card outbox version");
+        if (oldVersion < 2) {
+            List<String> localOnly = new ArrayList<>();
+            try (Cursor rows = db.rawQuery("SELECT event_id, payload FROM events WHERE state='pending'", null)) {
+                while (rows.moveToNext()) {
+                    try {
+                        if ("app_push".equals(new JSONObject(rows.getString(1)).optString("source"))) continue;
+                    } catch (JSONException ignored) {
+                        // Keep unreadable legacy records on this device.
+                    }
+                    localOnly.add(rows.getString(0));
+                }
+            }
+            ContentValues change = new ContentValues();
+            change.put("state", "local");
+            for (String id : localOnly) db.update("events", change, "event_id=?", new String[]{id});
+        }
     }
 
-    private static JSONObject payload(String source, String format, String issuer,
+    private static JSONObject payload(String issuer,
                                       Map<String, String> fields, long receivedMs) {
         try {
             JSONObject json = new JSONObject();
             json.put("event_id", UUID.randomUUID().toString());
-            json.put("source", source);
-            json.put("message_format", format == null ? JSONObject.NULL : format);
+            json.put("source", "app_push");
+            json.put("message_format", JSONObject.NULL);
             json.put("issuer", issuer);
             for (String key : new String[]{"event_type", "amount", "currency", "merchant", "approval_ref", "occurred_at"}) {
                 String value = fields.get(key);
@@ -65,26 +82,13 @@ final class CollectorStore extends SQLiteOpenHelper {
         }
     }
 
-    static String previewRcs(String issuer, String text) {
-        long now = System.currentTimeMillis();
-        Map<String, String> fields = CardParser.parse(issuer, "", text, now);
-        if (fields == null) return null;
-        return payload("message", "rcs", issuer, fields, now).toString();
-    }
-
-    static void capture(Context context, String source, String format, String issuer, String title,
-                        String body, long receivedMs, String notificationKey) {
-        capture(context, source, format, issuer, title, body, receivedMs, notificationKey, receivedMs);
-    }
-
-    static void capture(Context context, String source, String format, String issuer, String title,
-                        String body, long receivedMs, String notificationKey, long identityMs) {
+    static void capture(Context context, String issuer, String title, String body, long receivedMs, String notificationKey) {
         SharedPreferences prefs = Sources.prefs(context);
         if (!prefs.getBoolean("enabled", false) || issuer == null || issuer.trim().isEmpty()) return;
         Map<String, String> fields = CardParser.parse(issuer, title, body, receivedMs);
         if (fields == null) return;
 
-        JSONObject event = payload(source, format, issuer, fields, receivedMs);
+        JSONObject event = payload(issuer, fields, receivedMs);
         Destination destination = new Destination(prefs);
         ContentValues row = new ContentValues();
         row.put("event_id", event.optString("event_id"));
@@ -93,7 +97,7 @@ final class CollectorStore extends SQLiteOpenHelper {
         row.put("state", destination.binding.isEmpty() ? "local" : "pending");
         if (notificationKey != null) {
             // Android notification IDs can be reused for a later purchase.
-            row.put("notification_hash", hash(notificationKey + "\n" + identityMs + "\n" + title + "\n" + body));
+            row.put("notification_hash", hash(notificationKey + "\n" + receivedMs + "\n" + title + "\n" + body));
         }
         long id = db(context).getWritableDatabase().insertWithOnConflict(
                 "events", null, row, SQLiteDatabase.CONFLICT_IGNORE);

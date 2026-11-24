@@ -238,15 +238,29 @@ def update_expense(
 
 
 def delete_expense(trip_id: int, expense_id: int) -> Dict[str, Any]:
-    """지출 삭제. 분할은 CASCADE 삭제, 연결된 카드 이벤트는 다시 '미등록'으로."""
+    """Delete the expense and preserve the user's dismissal of a phone receipt on replay."""
     client = get_supabase_client()
     trip_id, expense_id = to_int(trip_id, "trip_id"), to_int(expense_id, "expense_id")
     current = first(client.table(TABLE_EXPENSES).select("*").eq("id", expense_id).eq("trip_id", trip_id).execute())
     if not current:
         raise NotFoundError(f"이 여행에 존재하지 않는 지출입니다 (expense_id: {expense_id}).")
     _check_editable(client, current)
-    client.table(TABLE_CARD_EVENTS).update({"expense_id": None}).eq("expense_id", expense_id).execute()
-    db_call("지출 삭제", lambda: client.table(TABLE_EXPENSES).delete().eq("id", expense_id).execute())
+    links = (client.table(TABLE_CARD_EVENTS).select("*").eq("expense_id", expense_id)
+             .eq("source", "app_push").limit(1).execute().data or [])
+    legacy = links and "auto_registration_skipped" not in links[0]
+    try:
+        if legacy:
+            # Pre-006 schemas have no discard column. Preserve each channel in a reversible source tag.
+            (client.table(TABLE_CARD_EVENTS).update({"source": "deleted:app_push"}).eq("source", "app_push")
+             .eq("expense_id", expense_id).execute())
+        # FK ON DELETE SET NULL detaches events in the same transaction as the delete;
+        # migration 006 also records the dismissal at that point.
+        db_call("지출 삭제", lambda: client.table(TABLE_EXPENSES).delete().eq("id", expense_id).execute())
+    except Exception:
+        if legacy:
+            (client.table(TABLE_CARD_EVENTS).update({"source": "app_push"}).eq("source", "deleted:app_push")
+             .eq("expense_id", expense_id).execute())
+        raise
     return {"deleted_expense_id": expense_id}
 
 

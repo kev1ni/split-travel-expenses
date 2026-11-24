@@ -3,9 +3,10 @@ import { Card } from '../common/Card';
 import { EmptyState } from '../common/EmptyState';
 import { EXPENSE_CATEGORIES } from '../../constants/categories';
 import { formatKrw } from '../../utils/formatters';
+import { countsTowardsExpenseTotal } from '../../utils/currencyMath';
 
 export function ExpenseStatistics({ expenses = [] }) {
-  const validExpenses = expenses.filter((e) => e.eventType !== 'CANCELLED');
+  const validExpenses = expenses.filter(countsTowardsExpenseTotal);
   const totalKrw = validExpenses.reduce(
     (sum, item) => sum + Number(item.amountKrw ?? item.amount ?? 0),
     0

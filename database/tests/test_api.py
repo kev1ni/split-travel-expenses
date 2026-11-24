@@ -122,18 +122,17 @@ def test_full_flow():
     s,j=call('get',f'/api/trips/{tid}/settlements?status=completed',expect=200)
 
     # card events
-    ev={"event_id":"e1","source":"rcs","issuer":"현대카드","event_type":"approval","amount":"1,400","merchant":"마트","approval_ref":"A1","received_at":"2026-11-17T10:00:00+09:00"}
+    ev={"event_id":"e1","source":"push","issuer":"현대카드","event_type":"approval","amount":"1,400","merchant":"마트","approval_ref":"A1","received_at":"2026-11-17T10:00:00+09:00"}
     call('post','/api/card-events',ev,201)
     s,j=call('post','/api/card-events',ev,200); assert j['duplicate']
-    call('post','/api/card-events',{**ev,"event_id":"e2","source":"push"},201)
-    s,j=call('get','/api/card-events/unassigned',expect=200); assert len(j['unassigned_cards'])==1 and j['unassigned_cards'][0]['duplicate_event_ids'], j
+    call('post','/api/card-events',{**ev,"event_id":"e2","source":"rcs"},422)
+    s,j=call('get','/api/card-events/unassigned',expect=200); assert len(j['unassigned_cards'])==1, j
     s,j=call('get',f'/api/card-events/unassigned?trip_id={tid}',expect=200); assert len(j['unassigned_cards'])==1
-    s,j=call('post',f'/api/trips/{tid}/expenses',{"expense":{"payer_member_id":m[0],"title":"마트","amount":1400},"card_event_id":"e2"},201)
-    assert sorted(j['linked_card_event_ids'])==['e1','e2'] and j['expense']['entry_type']=='auto_card'
+    s,j=call('post',f'/api/trips/{tid}/expenses',{"expense":{"payer_member_id":m[0],"title":"마트","amount":1400},"card_event_id":"e1"},201)
+    assert j['linked_card_event_ids']==['e1'] and j['expense']['entry_type']=='auto_card'
     ceid=j['expense']['id']
     call('post',f'/api/trips/{tid}/expenses',{"expense":{"payer_member_id":m[0],"title":"마트","amount":1400},"card_event_id":"e1"},409)
-    # third channel arrives later -> auto-link
-    s,j=call('post','/api/card-events',{**ev,"event_id":"e3","source":"sms"},201); assert j['card_event']['expense_id']==ceid
+    call('post','/api/card-events',{**ev,"event_id":"e3","source":"sms"},422)
     s,j=call('get','/api/card-events/unassigned',expect=200); assert j['unassigned_cards']==[]
     call('delete',f'/api/trips/{tid}/expenses/{ceid}',expect=200)
     s,j=call('get','/api/card-events/unassigned',expect=200); assert len(j['unassigned_cards'])==1
@@ -148,7 +147,7 @@ def test_full_flow():
     settings.parser_api_key = "secret-key"
     call('post','/api/card-events',{"event_id":"k1"},401)
     call('post','/api/card-events',{"event_id":"k1"},401,headers={"X-API-Key":"wrong"})
-    call('post','/api/card-events',{"event_id":"k1"},201,headers={"X-API-Key":"secret-key"})
+    call('post','/api/card-events',{"event_id":"k1","source":"push"},201,headers={"X-API-Key":"secret-key"})
     settings.parser_api_key = None
     s,j=call('post',f'/api/trips/{tid}/settle',expect=200)
     assert all('sender_nickname' in x for x in j['settlements'])

@@ -1,6 +1,5 @@
-"""검토 전 카드 문자 파싱과 여행별 승인·취소 확정."""
+"""여행별 카드 승인과 취소 지출 등록."""
 
-import re
 from decimal import Decimal, ROUND_FLOOR
 from uuid import UUID, uuid4
 
@@ -10,54 +9,7 @@ from core.validators import currency, db_call, first, now_iso, round_krw, text, 
 from services import card_events, expenses
 from services.common import ensure_members_in_trip
 
-# Grouped or ungrouped monetary amount, at most two fractional digits (EXPENSES.amount).
-MONEY = r"(?:[1-9][0-9]{0,2}(?:,[0-9]{3}){1,3}|[0-9]{1,12})(?:\.[0-9]{1,2})?"
-STAMP = r"(?:0[1-9]|1[0-2])/(?:0[1-9]|[12][0-9]|3[01]) (?:[01][0-9]|2[0-3]):[0-5][0-9]"
-FOREIGN = re.compile(
-    rf"(?:\[(?P<issuer>[^\[\]]{{1,50}})\] )?(?P<kind>해외승인|해외승인취소|해외부분취소) "
-    rf"(?P<currency>[A-Z]{{3}}) (?P<amount>{MONEY}) (?:가맹점[:：] )?(?P<merchant>[\w가-힣.&()' -]{{1,64}}?)"
-    rf"(?: (?P<stamp>{STAMP}))?(?: 승인번호[:：]? (?P<approval_ref>[A-Za-z0-9-]{{1,50}}))?"
-)
-HYUNDAI = re.compile(
-    rf"(?:\[Web발신\] )?현대 넥슨 승인 [가-힣]\*{{1,4}}[가-힣]? (?P<amount>{MONEY})원 일시불 "
-    rf"{STAMP} (?P<merchant>[가-힣A-Za-z][가-힣A-Za-z0-9 .&()'-]{{0,63}}?) 누적 ?(?:{MONEY})원"
-)
-DOMESTIC = re.compile(
-    rf"\[카드(?P<kind>승인|취소|부분취소)\] (?P<amount>{MONEY})원 / (?P<merchant>[\w가-힣.&()' -]{{1,64}}?) / "
-    r"(?:0?[1-9]|1[0-2])월 (?:0?[1-9]|[12][0-9]|3[01])일 (?:[01][0-9]|2[0-3]):[0-5][0-9]"
-)
 REFUND_TYPES = ("cancel", "cancellation", "partial_cancellation")
-
-
-def parse_message(body):
-    if not isinstance(body.get("message"), str):
-        raise ValidationError("message에 결제 문자 본문을 입력해주세요.")
-    raw = text(body.get("message"), "message", required=True, max_len=4096)
-    line = " ".join(raw.split())
-    result = dict.fromkeys(("issuer", "event_type", "merchant", "amount", "currency", "occurred_at", "approval_ref", "confidence"))
-    result["event_id"] = str(uuid4())
-    result["warnings"] = ["결제 문구를 확인하지 못했습니다. 금액·통화·가맹점을 확인해주세요."]
-    if re.search(r"승인\s*거절|인증\s*번호|\bOTP\b", line, re.I):
-        return result
-    if len(re.findall(r"해외(?:승인(?:취소)?|부분취소)|현대 넥슨 승인|\[카드(?:승인|취소|부분취소)\]", line)) != 1:
-        return result
-    match = HYUNDAI.fullmatch(line) or FOREIGN.fullmatch(line) or DOMESTIC.fullmatch(line)
-    if not match:
-        return result
-    data = match.groupdict()
-    amount = Decimal(data["amount"].replace(",", ""))
-    merchant = data["merchant"].strip()
-    if amount <= 0 or re.search(r"누적|잔액|한도|승인번호", merchant):
-        return result
-    result.update(
-        issuer="현대카드" if match.re is HYUNDAI else (None if data.get("issuer") == "카드" else data.get("issuer")),
-        amount=int(amount) if amount == int(amount) else float(amount), merchant=merchant,
-        currency=data.get("currency", "KRW"), approval_ref=data.get("approval_ref"),
-        event_type={"해외승인취소": "cancellation", "해외부분취소": "partial_cancellation",
-                    "취소": "cancellation", "부분취소": "partial_cancellation"}.get(data.get("kind"), "approval"),
-        warnings=["결제 연도 및 시간대를 확인해 주세요."],
-    )
-    return result
 
 
 class DuplicateCardEvent(ConflictError):
@@ -128,7 +80,7 @@ def register(trip_id, body):
         ensure_members_in_trip(client, trip_id, [s["member_id"] for s in splits], member_ids)
     else:
         original = _find_original(client, trip_id, payer, cur, body.get("original_expense_id"), issuer, ref)
-        refund = _refund_plan(client, original, amount, kind, occurred or now_iso(), title)
+        refund = _refund_plan(client, original, amount, kind, occurred or to_datetime(body.get("spent_at"), "spent_at") or now_iso(), title)
 
     if not event:
         event, _ = card_events.insert_card_event({
@@ -153,7 +105,7 @@ def register(trip_id, body):
 def _find_original(client, trip_id, payer, currency_code, original_id, issuer, ref):
     if not original_id and ref and issuer:
         rows = (client.table(TABLE_CARD_EVENTS).select("expense_id")
-                .eq("issuer", issuer).eq("approval_ref", ref).eq("event_type", "approval")
+                .eq("issuer", issuer).eq("approval_ref", ref).eq("event_type", "approval").eq("currency", currency_code)
                 .eq("trip_id", trip_id).eq("payer_member_id", payer).not_.is_("expense_id", "null").execute().data)
         ids = {r["expense_id"] for r in rows}
         if len(ids) == 1:
@@ -198,6 +150,16 @@ def _refund_plan(client, original, amount, kind, spent, title):
 
 
 def _commit_refund(client, event, original, refund):
+    if (event.get("source") == "app_push" and "auto_registration_skipped" not in event
+            and event.get("occurred_at") and event.get("approval_ref") and event.get("issuer")):
+        # On older databases, migration 003 may claim multiple identical pending refunds.
+        # Leave them unlinked until the exact-receipt procedure in 006 is available.
+        matches = client.table(TABLE_CARD_EVENTS).select("event_id").is_("expense_id", "null")
+        for field in ("trip_id", "payer_member_id", "issuer", "approval_ref",
+                      "event_type", "amount", "currency", "occurred_at"):
+            matches = matches.eq(field, event[field])
+        if any(row["event_id"] != event["event_id"] for row in matches.limit(2).execute().data or []):
+            raise ValidationError("같은 시각과 금액의 취소 알림이 여러 건입니다. DB 업데이트 후 다시 시도해주세요.")
     def commit():
         try:
             return client.rpc("confirm_card_refund", {"p_event_id": event["event_id"], "p_original_id": original["id"],

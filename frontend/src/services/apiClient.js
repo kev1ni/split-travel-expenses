@@ -31,7 +31,6 @@ export const API_ENDPOINTS = {
     preview: (code) => `/api/v1/invitations/${encodeURIComponent(code)}`,
     accept: '/api/v1/invitations/accept',
   },
-  cardEvents: {parse: '/api/v1/card-events/parse'},
   exchangeRates: '/api/v1/exchange-rates',
 };
 

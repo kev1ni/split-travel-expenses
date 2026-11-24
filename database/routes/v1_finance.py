@@ -16,6 +16,14 @@ from services.v1_expenses import expense_input, expense_view
 bp = Blueprint("v1_finance", __name__)
 
 
+@bp.get("/trips/<int:trip_id>/expense-revision")
+def expense_revision(trip_id):
+    trip_member(trip_id)
+    result = (get_supabase_client().table(TABLE_EXPENSES).select("id", count="exact")
+              .eq("trip_id", trip_id).order("id", desc=True).limit(1).execute())
+    return {"data": {"latest_id": result.data[0]["id"] if result.data else None, "count": result.count}}
+
+
 @bp.get("/trips/<int:trip_id>/expenses")
 def expense_list(trip_id):
     trip_member(trip_id)

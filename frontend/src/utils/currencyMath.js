@@ -67,3 +67,8 @@ export function sumKrwIntegers(values = []) {
     return acc + Math.round(num);
   }, 0);
 }
+
+// A posted refund has a negative amount; a voided purchase in older records is positive.
+export function countsTowardsExpenseTotal(expense) {
+  return expense.eventType !== 'CANCELLED' || expense.amount < 0;
+}

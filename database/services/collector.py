@@ -13,6 +13,15 @@ from services.common import get_trip_or_404
 from services.users import login_user
 
 
+AMOUNT = re.compile(r"[0-9]{1,12}(?:\.[0-9]{1,2})?")
+
+
+def reject_message(body):
+    if ("message" in body or "raw_text" in body or body.get("message_format") is not None
+            or body.get("source") not in (None, "app_push", "push", "manual")):
+        raise AppError("카드 앱 푸시만 수집합니다.", 422)
+
+
 def signer():
     if not settings.collector_signing_key:
         raise AppError("휴대폰 연결을 사용하려면 서버에 COLLECTOR_SIGNING_KEY를 설정하세요.", 503)
@@ -46,6 +55,7 @@ def read_scope(authorization):
 
 
 def event_payload(body, scope):
+    reject_message(body)
     if {"trip_id", "payer_member_id", "expense_id"} & body.keys():
         raise ValidationError("여행과 결제자는 휴대폰 연결 토큰에서 결정합니다.")
     try:
@@ -53,14 +63,12 @@ def event_payload(body, scope):
     except ValueError:
         raise ValidationError("event_id에는 수신 시 생성한 UUID가 필요합니다.") from None
     source = body.get("source")
-    if source not in ("message", "app_push") or body.get("event_type") not in ("approval", "cancel"):
-        raise ValidationError("source 또는 event_type을 확인해주세요.")
-    if body.get("message_format") not in (None, "sms", "mms", "rcs") or (
-        source == "app_push" and body.get("message_format") is not None
-    ):
-        raise ValidationError("message_format을 확인해주세요.")
+    if source != "app_push":
+        raise AppError("휴대폰 수집기는 카드 앱 푸시만 수집합니다.", 422)
+    if body.get("event_type") not in ("approval", "cancel"):
+        raise ValidationError("카드 앱 푸시의 event_type을 확인해주세요.")
     amount = str(body.get("amount", ""))
-    if not re.fullmatch(r"[0-9]{1,12}(?:\.[0-9]{1,2})?", amount):
+    if not AMOUNT.fullmatch(amount):
         raise ValidationError("amount는 소수점 두 자리 이내의 결제 금액이어야 합니다.")
     # Store a canonical amount so notifications from different platforms compare equally.
     value = to_decimal(amount, "amount", positive=True)
