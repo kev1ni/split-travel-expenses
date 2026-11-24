@@ -1,0 +1,33 @@
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/scroll"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:fillViewport="true" android:background="#F5FAEF">
+    <LinearLayout android:orientation="vertical" android:padding="24dp"
+        android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:focusableInTouchMode="true">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="테스트 결제" android:textSize="26sp" android:textStyle="bold" android:textColor="#243A2B" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="6dp" android:text="입력한 내용으로 이 휴대폰에 가상 카드 승인 알림을 보냅니다." />
+        <TextView style="@style/FormLabel" android:labelFor="@id/currency" android:text="통화" />
+        <Spinner android:id="@+id/currency" android:layout_width="match_parent" android:layout_height="48dp"
+            android:entries="@array/currencies" android:spinnerMode="dropdown" />
+        <TextView style="@style/FormLabel" android:labelFor="@id/amount" android:text="금액" />
+        <EditText android:id="@+id/amount" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:inputType="textNoSuggestions" android:selectAllOnFocus="true"
+            android:singleLine="true" android:imeOptions="actionNext" />
+        <TextView style="@style/FormLabel" android:labelFor="@id/merchant" android:text="사용처" />
+        <EditText android:id="@+id/merchant" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:inputType="textCapWords" android:selectAllOnFocus="true"
+            android:singleLine="true" android:imeOptions="actionDone" />
+        <TextView style="@style/FormLabel" android:labelFor="@id/clock" android:text="현재 시각" />
+        <TextClock android:id="@+id/clock" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:format12Hour="yyyy.MM.dd HH:mm:ss" android:format24Hour="yyyy.MM.dd HH:mm:ss"
+            android:textSize="18sp" android:textColor="#243A2B" />
+        <Button android:id="@+id/send" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:layout_marginTop="24dp" android:backgroundTint="#ABE574" android:textColor="#1F3A24"
+            android:text="테스트 결제 알림 보내기" />
+        <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:accessibilityLiveRegion="polite" />
+    </LinearLayout>
+</ScrollView>

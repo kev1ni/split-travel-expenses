@@ -1,0 +1,15 @@
+<resources>
+    <string-array name="currencies">
+        <item>KRW</item>
+        <item>JPY</item>
+        <item>USD</item>
+        <item>EUR</item>
+    </string-array>
+    <style name="FormLabel">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">16dp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">#28442F</item>
+    </style>
+</resources>
