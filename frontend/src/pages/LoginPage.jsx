@@ -6,6 +6,7 @@ import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
 import { InputField } from '../components/common/InputField';
 import { useAuth } from '../hooks/useAuth';
+import { supportsNativeCollector } from '../utils/nativeCollector';
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -20,7 +21,7 @@ export function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   const signupSuccessMessage = location.state?.signupSuccess || '';
-  const redirectTarget = location.state?.from || '/home';
+  const redirectTarget = location.state?.from || (supportsNativeCollector() ? '/trips' : '/home');
   const isFromInvite = redirectTarget.startsWith('/invite/');
 
   const validate = () => {

@@ -302,7 +302,8 @@
 
 | Method | 전체 경로 | 기능 |
 |---|---|---|
-| POST | `/api/collector/pair` | 연결할 여행과 결제자 전용 토큰 발급 |
+| POST | `/api/v1/trips/{trip_id}/collector-connection` | 앱 로그인 세션으로 내 여행 멤버를 자동 연결. 요청 본문은 비워 두거나 `{}` 사용. 응답 `data`에 `trip_id`, `trip_title`, `user_id`, `payer_member_id`, `token` 포함 |
+| POST | `/api/collector/pair` | 아이폰 단축어·구버전 앱의 수동 연결용 토큰 발급 |
 | POST | `/api/collector/events` | 연결된 앱의 결제 푸시를 받아 지출과 분담 자동 등록 |
 | GET | `/api/v1/trips/{trip_id}/card-events?source=app_push` | 해당 여행에 도착한 카드 앱 푸시 내역 |
 | POST | `/api/v1/trips/{trip_id}/card-events/sync` | 미반영 푸시 재시도 |

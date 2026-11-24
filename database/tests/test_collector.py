@@ -13,6 +13,75 @@ from config import settings
 from core.db import set_supabase_client
 
 
+def test_native_session_connection(monkeypatch):
+    db = FakeClient()
+    monkeypatch.setattr("core.db._client", db)
+    monkeypatch.setattr(settings, "collector_signing_key", None)
+    app = create_app()
+    web, other, device, guest = (app.test_client() for _ in range(4))
+
+    def post(client, path, body=None, status=200, headers=None):
+        response = client.post("/api/" + path, json=body, headers=headers)
+        assert response.status_code == status, (path, response.status_code, response.get_json())
+        return response
+
+    def login(client, name):
+        creds = {"login_id": name, "password": "test-password"}
+        post(client, "v1/auth/signup", {**creds, "nickname": name}, 201)
+        return creds, post(client, "v1/auth/login", creds).get_json()["data"]
+
+    owner_creds, owner = login(web, "trip-device")
+    other_creds, other_login = login(other, "trip-companion")
+    trip = post(web, "v1/trips", {"title": "여행 A"}, 201).get_json()["data"]
+    another = post(web, "v1/trips", {"title": "여행 B"}, 201).get_json()["data"]
+    path = f"v1/trips/{trip['id']}/collector-connection"
+    web_auth = {"Authorization": "Bearer " + owner["access_token"]}
+    post(device, path, status=401)
+    post(other, path, status=403)
+    post(guest, "v1/invitations/accept", {"share_code": trip["share_code"], "nickname": "게스트"}, 201)
+    post(guest, path, status=401)
+    post(web, path, headers={"Origin": "https://unrelated.example"}, status=403)
+    for field in ("user_id", "trip_id", "payer_member_id"):
+        post(web, path, {field: 123}, 422)
+    response = post(web, path)
+    assert response.cache_control.no_store
+    connection = response.get_json()["data"]
+    assert connection == {"trip_id": trip["id"], "trip_title": "여행 A", "payer_member_id": trip["my_member_id"],
+                          "user_id": owner["user"]["id"], "token": connection["token"]}
+    assert connection == post(device, path, {}, headers=web_auth).get_json()["data"]
+
+    def upload(config, status=201):
+        auth = {"Authorization": "Bearer " + config["token"]}
+        body = {"event_id": str(uuid4()), "source": "app_push", "issuer": "QA카드", "amount": "1400",
+                "currency": "KRW", "event_type": "approval", "received_at": "2026-11-24T12:00:00+09:00"}
+        return post(device, "collector/events", body, status, headers=auth).get_json()
+
+    selected = post(web, f"v1/trips/{another['id']}/collector-connection").get_json()["data"]
+    for config in (connection, selected):
+        event = upload(config)["card_event"]
+        assert event["trip_id"] == config["trip_id"] and event["payer_member_id"] == config["payer_member_id"]
+        assert event["expense_id"]
+    # Devices and invitees have separate sessions. Replacing a login on this device only revokes this login.
+    joined = post(other, "v1/invitations/accept", {"share_code": trip["share_code"]}, 201).get_json()["data"]
+    companion = post(other, path).get_json()["data"]
+    assert companion["payer_member_id"] == joined["member_id"] and companion["user_id"] == other_login["user"]["id"]
+    post(web, "v1/auth/login", other_creds)
+    upload(connection, 401)
+    upload(selected, 401)
+    assert upload(companion)["card_event"]["payer_member_id"] == joined["member_id"]
+    post(other, "v1/auth/logout")
+    upload(companion, 401)
+    post(web, "v1/auth/login", owner_creds)
+    renewed = post(web, path).get_json()["data"]
+    assert renewed["token"] != connection["token"]
+    db.table("trip_members").update({"user_id": None}).eq("id", trip["my_member_id"]).execute()
+    upload(renewed, 403)
+    db.table("trip_members").update({"user_id": owner["user"]["id"]}).eq("id", trip["my_member_id"]).execute()
+    db.table("web_sessions").update({"expires_at": "2000-01-01T00:00:00+00:00"}).eq("user_id", owner["user"]["id"]).execute()
+    upload(renewed, 401)
+    assert len(db.tables["expenses"]) == 3
+
+
 def test_mobile_and_reviewed_events():
     previous_key = settings.collector_signing_key
     settings.collector_signing_key = "test-only-collector-key"

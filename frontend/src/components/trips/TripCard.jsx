@@ -1,4 +1,4 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import {
   MapPin,
   Calendar,
@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Card } from '../common/Card';
 import { StatusBadge } from '../common/StatusBadge';
+import { CollectorTripLink } from '../expenses/CollectorTripLink';
 import { formatDateRange, formatKrw } from '../../utils/formatters';
 import { getTripPhase, getTripPhaseMeta } from '../../utils/tripHelpers';
 
@@ -17,31 +18,17 @@ export function TripCard({
   onInvite = null,
   onManageMembers = null,
 }) {
-  const navigate = useNavigate();
-
   const phase = getTripPhase(trip);
   const phaseMeta = getTripPhaseMeta(phase);
 
   const settlementText =
     trip.settlementStatus === 'SETTLED' ? '정산 완료' : '정산 진행 중';
 
-  const handleCardKeyDown = (e) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      navigate(`/trips/${trip.id}`);
-    }
-  };
-
   return (
     <Card
       hoverable
-      role="button"
-      tabIndex={0}
-      onClick={() => navigate(`/trips/${trip.id}`)}
-      onKeyDown={handleCardKeyDown}
       padding="p-6"
-      className="cursor-pointer flex flex-col justify-between gap-5 group"
-      aria-label={`${trip.title} 여행 상세 보기`}
+      className="relative flex flex-col justify-between gap-5 group"
     >
       <div className="space-y-3.5">
         <div className="flex items-center justify-between gap-2">
@@ -82,19 +69,18 @@ export function TripCard({
 
           <Link
             to={`/trips/${trip.id}`}
-            onClick={(e) => e.stopPropagation()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[12px] bg-[#F2F6EE] hover:bg-primary text-ink-main text-sm font-semibold transition-colors shrink-0"
+            aria-label={`${trip.title} 여행 상세 보기`}
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-[12px] bg-[#F2F6EE] hover:bg-primary text-ink-main text-sm font-semibold transition-colors shrink-0 after:absolute after:inset-0 after:content-['']"
           >
             상세 보기
             <ArrowRight className="w-4 h-4" aria-hidden="true" />
           </Link>
         </div>
 
+        <CollectorTripLink trip={trip} />
+
         {(onInvite || onManageMembers) && (
-          <div
-            className="flex items-center gap-2 pt-1"
-            onClick={(e) => e.stopPropagation()}
-          >
+          <div className="relative z-10 flex items-center gap-2 pt-1">
             {onInvite && (
               <button
                 type="button"

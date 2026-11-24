@@ -5,6 +5,8 @@ import { cardEventService } from '../../services/cardEventService';
 import { Button } from '../common/Button';
 import { Card } from '../common/Card';
 import { InputField } from '../common/InputField';
+import { supportsNativeCollector } from '../../utils/nativeCollector';
+import { CollectorTripLink } from './CollectorTripLink';
 
 export function CollectorPairing({ trip }) {
   const { user } = useAuth();
@@ -18,6 +20,7 @@ export function CollectorPairing({ trip }) {
   const [open, setOpen] = useState(false);
 
   if (!choices.length || !user?.username) return null;
+  if (supportsNativeCollector()) return <CollectorTripLink trip={trip} />;
 
   async function submit(e) {
     e.preventDefault();

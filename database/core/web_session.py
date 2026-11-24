@@ -31,15 +31,33 @@ def _key(nonce):
 
 
 def start_session(user_id=None):
+    signing = _signer()
+    previous = session.get("access")
     nonce = secrets.token_urlsafe(32)
-    token = _signer().dumps(nonce)
+    token = signing.dumps(nonce)
     expires = datetime.now(timezone.utc) + timedelta(seconds=SESSION_AGE)
     row = {"token_hash": _key(nonce), "user_id": user_id, "expires_at": expires.isoformat()}
-    get_supabase_client().table("web_sessions").insert(row).execute()
+    sessions = get_supabase_client().table("web_sessions")
+    sessions.insert(row).execute()
+    if previous:
+        try:
+            previous_nonce = signing.loads(previous, max_age=SESSION_AGE)
+        except BadSignature:
+            pass
+        else:
+            # Replacing a login on this device also disconnects collectors bound to it.
+            sessions.delete().eq("token_hash", _key(previous_nonce)).execute()
     session.clear()
     session["access"] = token
     g.web_identity = row
     return token
+
+
+def active_session(token_hash):
+    row = first(get_supabase_client().table("web_sessions").select("*").eq("token_hash", token_hash).execute())
+    if row and datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00")) > datetime.now(timezone.utc):
+        return row
+    return None
 
 
 def identity():
@@ -64,8 +82,8 @@ def identity():
         nonce = _signer().loads(token, max_age=SESSION_AGE)
     except BadSignature:
         return expired()
-    row = first(get_supabase_client().table("web_sessions").select("*").eq("token_hash", _key(nonce)).execute())
-    if not row or datetime.fromisoformat(row["expires_at"].replace("Z", "+00:00")) <= datetime.now(timezone.utc):
+    row = active_session(_key(nonce))
+    if not row:
         return expired()
     g.web_identity = row
     return row

@@ -35,6 +35,15 @@ def pair_collector():
     return response
 
 
+@bp.post("/v1/trips/<int:trip_id>/collector-connection")
+def connect_collecting_device(trip_id):
+    if request.args or (request.get_data() and get_json_body()):
+        raise ValidationError("요청 본문은 비워 주세요. 결제자는 로그인한 계정으로 지정합니다.")
+    response = jsonify(data=collector.connect_to_trip(trip_id))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 @bp.post("/collector/events")
 def collect():
     scope = collector.read_scope(request.headers.get("Authorization"))

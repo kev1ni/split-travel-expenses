@@ -3,12 +3,14 @@
 import re
 from uuid import UUID
 
+from flask import current_app
 from itsdangerous import BadData, URLSafeSerializer
 
 from config import settings
 from core.db import TABLE_TRIP_MEMBERS, get_supabase_client
 from core.errors import AppError, AuthError, ValidationError
 from core.validators import currency, first, text, to_datetime, to_decimal, to_int
+from core.web_session import active_session, identity, trip_member
 from services.common import get_trip_or_404
 from services.users import login_user
 
@@ -42,15 +44,40 @@ def issue_token(data):
     return signing.dumps([trip_id, payer_id])
 
 
+def _session_signer():
+    # The session hash identifies a revocable row, but cannot be used as a web login.
+    return URLSafeSerializer(current_app.secret_key, salt="ntrip.collector.session.v2")
+
+
+def connect_to_trip(trip_id):
+    session = identity()
+    if not session or session["user_id"] is None:
+        raise AuthError("카드를 연결하려면 앱에서 로그인해 주세요.")
+    member = trip_member(trip_id)
+    trip = get_trip_or_404(get_supabase_client(), trip_id)
+    scope = [trip_id, member["id"], session["user_id"], session["token_hash"]]
+    return {"trip_id": trip_id, "trip_title": trip["title"], "payer_member_id": member["id"],
+            "user_id": session["user_id"], "token": "v2." + _session_signer().dumps(scope)}
+
+
 def read_scope(authorization):
-    signing = signer()
     kind, _, token = (authorization or "").partition(" ")
     if kind.lower() != "bearer" or not token or len(token) > 2048:
         raise AuthError("휴대폰 연결 토큰이 필요합니다.")
     try:
-        trip_id, payer_id = signing.loads(token)
+        if not token.startswith("v2."):
+            trip_id, payer_id = signer().loads(token)
+            return trip_id, payer_id
+        trip_id, payer_id, user_id, session_hash = _session_signer().loads(token[3:])
     except (BadData, ValueError, TypeError):
         raise AuthError("휴대폰 연결 토큰이 유효하지 않습니다.") from None
+    session = active_session(session_hash)
+    if not session or session["user_id"] != user_id:
+        raise AuthError("로그인이 만료됐어요. 앱에서 다시 로그인하고 수집할 여행을 선택해 주세요.")
+    member = first(get_supabase_client().table(TABLE_TRIP_MEMBERS).select("id").eq("id", payer_id)
+                   .eq("trip_id", trip_id).eq("user_id", user_id).execute())
+    if not member:
+        raise AppError("카드를 연결한 여행에 참여 중인 멤버가 아닙니다.", 403)
     return trip_id, payer_id
 
 
